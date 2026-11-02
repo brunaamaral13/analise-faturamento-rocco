@@ -1,0 +1,288 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Rocco · Sell-out</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,560;9..144,650&family=Outfit:wght@360;460;560;650&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%23b5191a'/%3E%3C/svg%3E">
+</head>
+<body>
+  <div class="app">
+    <aside class="sidebar">
+      <div class="brand">
+        <img src="logo-rocco.png" alt="Editora Rocco" width="184" height="50">
+        <small>Sell-out</small>
+      </div>
+
+      <nav class="nav" aria-label="Seções">
+        <button type="button" data-goto="sec-visao" class="is-active">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 4h7v7H4zM13 4h7v4h-7zM13 10h7v10h-7zM4 13h7v7H4z"/></svg>
+          Visão geral
+        </button>
+        <button type="button" data-goto="sec-clientes">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="3"/><path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+          Clientes
+        </button>
+        <button type="button" data-goto="sec-itens">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 19h16M7 16V8M12 16V5M17 16v-5"/></svg>
+          Itens
+        </button>
+        <button type="button" data-goto="sec-evo">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 19V5M4 19h16"/><path d="M7 15l4-5 3 3 5-7"/></svg>
+          Evolução
+        </button>
+      </nav>
+
+      <div class="side-foot" id="sideFoot">
+        <p class="side-base" id="sideBase">Nenhuma base carregada</p>
+        <div class="side-filters" id="sideFilters" hidden>
+          <p>Filtros utilizados:</p>
+          <ul id="sideFilterList"></ul>
+        </div>
+      </div>
+
+      <button type="button" class="side-file" id="btnFile">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v10"/><path d="m8 8 4-4 4 4"/><path d="M5 20h14"/></svg>
+        <span>
+          <strong id="fileLabel">Importar CSV</strong>
+          <small id="fileMeta">Sell-out acumulado Rocco</small>
+        </span>
+      </button>
+      <input id="file" type="file" accept=".csv,text/csv" hidden>
+    </aside>
+
+    <main class="main">
+      <div class="main-inner">
+        <header class="top">
+          <div>
+            <h1>Desempenho sell-out</h1>
+          </div>
+          <div class="top-tools">
+            <div class="year-switch" id="yearSwitch" role="group" aria-label="Ano em análise"></div>
+            <div class="search-wrap">
+              <label class="search">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6"/><path d="m16 16 4 4"/></svg>
+                <input id="q" type="search" placeholder="Buscar loja, grupo ou SKU" autocomplete="off" disabled aria-label="Buscar loja, grupo ou SKU" aria-controls="searchHit" aria-expanded="false">
+              </label>
+              <div id="searchHit" class="search-hit" hidden></div>
+            </div>
+          </div>
+        </header>
+
+        <section id="empty" class="empty">
+          <div class="drop" id="drop">
+            <div class="drop-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24"><path d="M12 16V6"/><path d="m8 9 4-4 4 4"/><path d="M5 19h14"/></svg>
+            </div>
+            <h2>Solte o CSV de sell-out</h2>
+            <p>Use o arquivo <b>SELL-OUT ACUMULADO ROCCO</b>. Cada venda entra no mês da data. Editora e selo ficam de fora.</p>
+            <button type="button" class="btn" id="pick">Selecionar arquivo</button>
+            <p class="error" id="error" hidden></p>
+          </div>
+        </section>
+
+        <div id="dash" hidden>
+          <section id="sec-visao" data-section>
+            <div class="filters">
+              <div class="filter-bar" id="filterBar"></div>
+              <button type="button" class="text-btn" id="btnClear" hidden>Limpar recortes</button>
+            </div>
+            <p class="hint">Comece pelo vendedor. Depois cruze grupo econômico, loja, UF ou categoria — os painéis e o ranking de itens acompanham o recorte. A data vale pelo mês inteiro.</p>
+            <div class="chips" id="chips" hidden></div>
+
+            <div class="kpis">
+              <article class="kpi kpi-amber">
+                <span id="kpiRevenueLabel">Faturamento</span>
+                <b id="kpiRevenue">—</b>
+                <small id="kpiRevenueSub"></small>
+              </article>
+              <article class="kpi kpi-green" id="kpiVarCard">
+                <span>Variação vs. ano anterior</span>
+                <b id="kpiVar">—</b>
+                <small id="kpiVarSub"></small>
+              </article>
+              <article class="kpi kpi-navy">
+                <span>Lojas ativas</span>
+                <b id="kpiActive">—</b>
+                <small id="kpiActiveSub">com venda no período</small>
+              </article>
+              <article class="kpi kpi-purple">
+                <span>Volume</span>
+                <b id="kpiVolume">—</b>
+                <small id="kpiVolumeSub">unidades vendidas</small>
+              </article>
+            </div>
+
+            <div class="kpi-row">
+              <article class="kpi kpi-soft">
+                <span>Ticket médio</span>
+                <b id="kpiTicket">—</b>
+                <small>por cupom</small>
+              </article>
+              <article class="kpi kpi-soft">
+                <span>Grupos ativos</span>
+                <b id="kpiGrupos">—</b>
+                <small>grupos econômicos</small>
+              </article>
+              <article class="kpi kpi-soft">
+                <span>SKUs distintos</span>
+                <b id="kpiSkus">—</b>
+                <small>títulos no recorte</small>
+              </article>
+              <article class="kpi kpi-soft">
+                <span>Cupons</span>
+                <b id="kpiCupons">—</b>
+                <small>transações</small>
+              </article>
+            </div>
+          </section>
+
+          <section class="grid-mid" id="sec-evo" data-section>
+            <article class="card chart-card">
+              <header class="card-head">
+                <div>
+                  <h2 id="chartTitle">Evolução mensal</h2>
+                  <p id="chartSub">Faturamento no recorte atual</p>
+                </div>
+              </header>
+              <div class="plot-wrap">
+                <canvas id="trend" aria-describedby="chartSummary"></canvas>
+              </div>
+              <p id="chartSummary" class="sr-only"></p>
+            </article>
+
+            <article class="card donut-card">
+              <header class="card-head">
+                <div>
+                  <h2>Composição</h2>
+                  <p id="donutSub">Participação no período</p>
+                </div>
+                <div class="seg seg-sm" id="dimSeg" role="group" aria-label="Dimensão">
+                  <button type="button" data-dim="grupo" aria-pressed="true">Grupo</button>
+                  <button type="button" data-dim="vendedor" aria-pressed="false">Vendedor</button>
+                  <button type="button" data-dim="loja" aria-pressed="false">Loja</button>
+                  <button type="button" data-dim="uf" aria-pressed="false">UF</button>
+                  <button type="button" data-dim="categoria" aria-pressed="false">Categoria</button>
+                </div>
+              </header>
+              <div class="donut-layout">
+                <div class="donut-wrap">
+                  <canvas id="donut"></canvas>
+                  <div class="donut-center">
+                    <span id="donutCaption">Período</span>
+                    <strong id="donutTotal">—</strong>
+                  </div>
+                </div>
+                <div class="slice-list" id="donutLegend"></div>
+              </div>
+            </article>
+          </section>
+
+          <section id="sec-clientes" data-section>
+            <article class="card">
+              <header class="card-head">
+                <div>
+                  <h2>Grupos econômicos</h2>
+                  <p id="grupoCount"></p>
+                </div>
+              </header>
+              <div class="rank-scroll">
+                <table class="rank-table">
+                  <thead>
+                    <tr>
+                      <th class="col-pos">#</th>
+                      <th><button type="button" data-sort-grupo="name">Grupo</button></th>
+                      <th class="num"><button type="button" data-sort-grupo="lojas">Lojas</button></th>
+                      <th class="num"><button type="button" data-sort-grupo="fat">Faturamento</button></th>
+                      <th class="num"><button type="button" data-sort-grupo="pct">Variação</button></th>
+                    </tr>
+                  </thead>
+                  <tbody id="grupoBody"></tbody>
+                </table>
+              </div>
+            </article>
+
+            <article class="card">
+              <header class="card-head">
+                <div>
+                  <h2>Lojas</h2>
+                  <p id="lojaCount"></p>
+                </div>
+              </header>
+              <div class="rank-scroll">
+                <table class="rank-table">
+                  <thead>
+                    <tr>
+                      <th class="col-pos">#</th>
+                      <th><button type="button" data-sort-loja="name">Loja</button></th>
+                      <th>Grupo</th>
+                      <th class="col-vend">Vendedor</th>
+                      <th class="num"><button type="button" data-sort-loja="fat">Faturamento</button></th>
+                      <th class="num"><button type="button" data-sort-loja="pct">Variação</button></th>
+                    </tr>
+                  </thead>
+                  <tbody id="lojaBody"></tbody>
+                </table>
+              </div>
+            </article>
+          </section>
+
+          <section id="sec-itens" data-section>
+            <article class="card">
+              <header class="card-head items-head">
+                <div>
+                  <h2>Itens</h2>
+                  <p id="itemsSub">Top títulos no recorte</p>
+                </div>
+                <div class="items-tools">
+                  <label class="field">
+                    <span>Grupo</span>
+                    <select id="itemGrupo"></select>
+                  </label>
+                  <label class="field">
+                    <span>Loja</span>
+                    <select id="itemLoja"></select>
+                  </label>
+                  <div class="seg seg-sm" id="itemMetric" role="group" aria-label="Métrica dos itens">
+                    <button type="button" data-metric="fat" aria-pressed="true">Faturamento</button>
+                    <button type="button" data-metric="vol" aria-pressed="false">Volume</button>
+                  </div>
+                </div>
+              </header>
+              <div class="rank-scroll">
+                <table class="rank-table items-table">
+                  <thead>
+                    <tr>
+                      <th class="col-pos">#</th>
+                      <th>SKU</th>
+                      <th>Descrição</th>
+                      <th>Categoria</th>
+                      <th class="num">Volume</th>
+                      <th class="num">Faturamento</th>
+                      <th class="num">Parte</th>
+                    </tr>
+                  </thead>
+                  <tbody id="itemsBody"></tbody>
+                </table>
+              </div>
+            </article>
+          </section>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <div class="loading" id="loading" hidden>
+    <div>
+      <div class="spinner" aria-hidden="true"></div>
+      <p id="loadingText">Lendo o sell-out…</p>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
