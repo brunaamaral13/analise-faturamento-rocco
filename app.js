@@ -10,7 +10,6 @@ const DIMS = [
   { key: "categoria", label: "Categoria", field: "cat" }
 ];
 const SLICE_COLORS = ["#b5191a","#e0a106","#0f7a5a","#1b2a4a","#7c4d9e","#d46a2e","#3d7ea6","#5b8c5a","#b08968","#8d3b4c","#4c6e8a","#c47b9b"];
-const DEFAULT_CSV = "SELL-OUT ACUMULADO ROCCO.csv";
 
 const state = {
   rows: [],
@@ -850,19 +849,4 @@ function wire() {
   });
 }
 
-async function tryAutoload() {
-  try {
-    const res = await fetch(DEFAULT_CSV);
-    if (!res.ok) return;
-    $("loading").hidden = false;
-    $("loadingText").textContent = "Carregando base local…";
-    const buf = await res.arrayBuffer();
-    const text = new TextDecoder("windows-1252").decode(buf);
-    await ingestText(text, DEFAULT_CSV);
-  } catch {
-    /* file picker fallback */
-  }
-}
-
 wire();
-tryAutoload();
