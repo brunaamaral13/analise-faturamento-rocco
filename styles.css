@@ -817,6 +817,10 @@ body.is-drag .drop { border-color: var(--red); transform: translateY(-2px); }
 }
 .tooltip .row { display: flex; justify-content: space-between; gap: 12px; margin-top: 4px; }
 .tooltip .row span { display: inline-flex; align-items: center; gap: 2px; color: #d5d9e0; }
+.tooltip .tip-block { margin-top: 8px; padding-top: 6px; border-top: 1px solid rgba(255,255,255,.12); }
+.tooltip .tip-block:first-of-type { margin-top: 4px; padding-top: 0; border-top: 0; }
+.tooltip .tip-evo { font-size: 12px; }
+.tooltip .tip-evo b { gap: 6px; }
 .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; margin-right: 6px; }
 
 .loading {

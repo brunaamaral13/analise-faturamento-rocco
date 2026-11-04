@@ -563,13 +563,35 @@ function trendMonthAt(canvas, clientX, clientY) {
   return hit.hits.find((spot) => x >= spot.x && x <= spot.x + spot.w && y >= spot.y && y <= spot.y + spot.h) || null;
 }
 
+function tipPctClass(pct) {
+  if (pct == null) return "";
+  if (pct > 0) return "up";
+  if (pct < 0) return "down";
+  return "";
+}
+
+function tipPctHtml(pct) {
+  if (pct == null) return `<em>—</em>`;
+  return `<em class="${tipPctClass(pct)}">${pctFmt.format(pct)}</em>`;
+}
+
 function trendTooltipHtml(monthIndex) {
   const series = charts.trendSeries || [];
+  const byYear = new Map(series.map((s) => [s.year, s]));
   const month = MONTHS[monthIndex] || MONTHS_SHORT[monthIndex];
   const rows = series.map((s) => {
     const fat = s.fat[monthIndex] || 0;
     const vol = s.vol[monthIndex] || 0;
-    return `<div class="row"><span><i class="dot" style="background:${s.color}"></i>${s.year}</span><b>${moneyFmt.format(fat)} · ${numFmt.format(vol)} un.</b></div>`;
+    const prev = byYear.get(s.year - 1);
+    const fatPct = prev ? pctChange(fat, prev.fat[monthIndex] || 0) : null;
+    const volPct = prev ? pctChange(vol, prev.vol[monthIndex] || 0) : null;
+    const evo = prev
+      ? `<div class="row tip-evo"><span>Evolução vs ${s.year - 1}</span><b>Fat. ${tipPctHtml(fatPct)} · Vol. ${tipPctHtml(volPct)}</b></div>`
+      : `<div class="row tip-evo"><span>Evolução</span><b>—</b></div>`;
+    return `<div class="tip-block">
+      <div class="row"><span><i class="dot" style="background:${s.color}"></i>${s.year}</span><b>${moneyFmt.format(fat)} · ${numFmt.format(vol)} un.</b></div>
+      ${evo}
+    </div>`;
   }).join("");
   return `<b>${esc(month)}</b><div class="tip-k">Faturamento · Volume</div>${rows}`;
 }
