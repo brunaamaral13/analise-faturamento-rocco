@@ -182,9 +182,18 @@ function optionsFor(dimKey) {
   for (const r of filteredRows(dimKey)) {
     if (!inWindow(r, win)) continue;
     const v = r[dim.field];
-    map.set(v, (map.get(v) || 0) + r.fat);
+    const cur = map.get(v) || { fat: 0, lojas: new Set() };
+    cur.fat += r.fat;
+    cur.lojas.add(r.cnpj || r.loja);
+    map.set(v, cur);
   }
-  return [...map.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0], "pt-BR"));
+  const byLojas = dimKey === "vendedor";
+  return [...map.entries()]
+    .map(([value, cur]) => [value, cur.lojas.size, cur.fat])
+    .sort((a, b) => {
+      if (byLojas) return b[1] - a[1] || a[0].localeCompare(b[0], "pt-BR");
+      return b[2] - a[2] || a[0].localeCompare(b[0], "pt-BR");
+    });
 }
 
 function otherActiveFilters(exceptKey) {
@@ -221,7 +230,7 @@ function pruneIncompatibleFilters() {
   for (const dim of DIMS) {
     const set = state.filters[dim.key];
     if (!set.size) continue;
-    const allowed = new Set(optionsFor(dim.key).map(([v]) => v));
+    const allowed = new Set(optionsFor(dim.key).map((opt) => opt[0]));
     for (const v of [...set]) {
       if (!allowed.has(v)) {
         set.delete(v);
@@ -386,9 +395,12 @@ function renderFilterBar() {
         }).join(" · ")}`
       : "";
     const listHtml = opts.length
-      ? opts.map(([value, fat], idx) => {
+      ? opts.map(([value, lojasN, fat], idx) => {
           const on = set.has(value);
-          return `<label class="menu-item"><input type="checkbox" data-dim="${dim.key}" data-opt="${idx}" ${on ? "checked" : ""}><span title="${esc(value)}">${esc(value)}</span><small>${moneyFmt.format(fat)}</small></label>`;
+          const meta = dim.key === "vendedor"
+            ? `${numFmt.format(lojasN)} ${lojasN === 1 ? "loja" : "lojas"}`
+            : moneyFmt.format(fat);
+          return `<label class="menu-item"><input type="checkbox" data-dim="${dim.key}" data-opt="${idx}" ${on ? "checked" : ""}><span title="${esc(value)}">${esc(value)}</span><small>${meta}</small></label>`;
         }).join("")
       : `<p class="menu-empty">Nenhuma opção neste recorte.</p>`;
     return `
