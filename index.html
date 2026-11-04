@@ -35,14 +35,21 @@
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 19V5M4 19h16"/><path d="M7 15l4-5 3 3 5-7"/></svg>
           Evolução
         </button>
+        <button type="button" data-goto="sec-uf">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 21s7-4.5 7-11a7 7 0 1 0-14 0c0 6.5 7 11 7 11z"/><circle cx="12" cy="10" r="2.5"/></svg>
+          Por UF
+        </button>
       </nav>
 
       <div class="side-foot" id="sideFoot">
         <p class="side-base" id="sideBase">Nenhuma base carregada</p>
         <div class="side-filters" id="sideFilters" hidden>
-          <p>Filtros utilizados:</p>
+          <div class="side-filters-head">
+            <p>Filtros utilizados</p>
+            <button type="button" class="side-clear-link" id="btnSideClear" hidden>Limpar</button>
+          </div>
           <ul id="sideFilterList"></ul>
-          <button type="button" class="side-clear" id="btnSideClear" hidden>Limpar filtros</button>
+          <button type="button" class="side-clear" id="btnSideClearAll" hidden>Limpar todos os filtros</button>
         </div>
       </div>
 
@@ -183,6 +190,33 @@
             </article>
           </section>
 
+          <section id="sec-uf" data-section>
+            <article class="card">
+              <header class="card-head">
+                <div>
+                  <h2>Sell-out por UF</h2>
+                  <p id="ufSub">Passe o mouse no estado para ver quantas lojas venderam no recorte.</p>
+                </div>
+              </header>
+              <div class="uf-layout">
+                <div class="brazil-wrap">
+                  <div class="map-side">
+                    <div class="map-legend">
+                      <span><i class="dot-hot"></i>Mais faturamento</span>
+                      <span><i class="dot-cold"></i>Sem venda / baixo</span>
+                    </div>
+                    <p class="map-note">Clique num estado para filtrar. Passe o mouse para ver as lojas.</p>
+                  </div>
+                  <svg id="brazilSvg" viewBox="0 0 440 470" role="img" aria-label="Mapa do Brasil por estado"></svg>
+                </div>
+                <div class="uf-bars">
+                  <p id="ufCut" class="uf-cut">Recorte: todos os estados</p>
+                  <div class="uf-list" id="ufList"></div>
+                </div>
+              </div>
+            </article>
+          </section>
+
           <section id="sec-clientes" data-section>
             <article class="card">
               <header class="card-head">
@@ -277,6 +311,8 @@
     </main>
   </div>
 
+  <div class="tooltip" id="tooltip" hidden></div>
+
   <div class="loading" id="loading" hidden>
     <div>
       <div class="spinner" aria-hidden="true"></div>
@@ -284,6 +320,7 @@
     </div>
   </div>
 
-  <script src="app.js?v=20261104-3"></script>
+  <script src="brazil-map.js"></script>
+  <script src="app.js?v=20261104-8"></script>
 </body>
 </html>

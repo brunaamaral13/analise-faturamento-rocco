@@ -29,7 +29,7 @@ const state = {
   sortLoja: { key: "fat", dir: "desc" }
 };
 
-const charts = { colorOf: new Map() };
+const charts = { colorOf: new Map(), ufByKey: new Map(), hoverUf: null, hoverMonth: null, trendSeries: [] };
 const $ = (id) => document.getElementById(id);
 const moneyFmt = new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL", maximumFractionDigits: 0 });
 const moneyFmtDec = new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL", maximumFractionDigits: 2 });
@@ -328,21 +328,24 @@ function renderSideFilters() {
   const box = $("sideFilters");
   const list = $("sideFilterList");
   const clearBtn = $("btnSideClear");
+  const clearAllBtn = $("btnSideClearAll");
   if (!state.meta) {
     box.hidden = true;
     return;
   }
   const groups = activeFilterGroups();
+  const hasFilters = groups.length > 0;
   box.hidden = false;
-  clearBtn.hidden = !groups.length;
-  if (!groups.length) {
+  clearBtn.hidden = !hasFilters;
+  if (clearAllBtn) clearAllBtn.hidden = !hasFilters;
+  if (!hasFilters) {
     list.innerHTML = `<li class="is-empty">Nenhum recorte ativo</li>`;
     return;
   }
   list.innerHTML = groups.map((g) => `
     <li>
       <span><b>${esc(g.label)}:</b> ${esc(g.values.join(", "))}</span>
-      <button type="button" class="side-filter-x" data-side-clear-dim="${esc(g.key)}" aria-label="Limpar ${esc(g.label)}">×</button>
+      <button type="button" class="side-filter-x" data-side-clear-dim="${esc(g.key)}" title="Limpar ${esc(g.label)}" aria-label="Limpar ${esc(g.label)}">×</button>
     </li>`).join("");
 }
 
@@ -417,7 +420,7 @@ function renderChips() {
   if (!chips.length) { el.hidden = true; el.innerHTML = ""; return; }
   el.hidden = false;
   el.innerHTML = chips.map((chip, index) =>
-    `<span class="chip">${esc(chip.label)}<button type="button" data-chip="${index}" aria-label="Remover ${esc(chip.label)}">×</button></span>`
+    `<button type="button" class="chip" data-chip="${index}" title="Remover ${esc(chip.label)}" aria-label="Remover ${esc(chip.label)}">${esc(chip.label)} <span aria-hidden="true">×</span></button>`
   ).join("");
 }
 
@@ -452,6 +455,18 @@ function clearDimFilter(dimKey) {
   renderAll();
 }
 
+function roundTopBar(ctx, x, y, w, h, r) {
+  const radius = Math.min(r, w / 2, h);
+  ctx.beginPath();
+  ctx.moveTo(x, y + h);
+  ctx.lineTo(x, y + radius);
+  ctx.quadraticCurveTo(x, y, x + radius, y);
+  ctx.lineTo(x + w - radius, y);
+  ctx.quadraticCurveTo(x + w, y, x + w, y + radius);
+  ctx.lineTo(x + w, y + h);
+  ctx.closePath();
+}
+
 function drawTrend(canvas, series) {
   const ctx = canvas.getContext("2d");
   const dpr = window.devicePixelRatio || 1;
@@ -461,46 +476,90 @@ function drawTrend(canvas, series) {
   canvas.height = Math.round(h * dpr);
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   ctx.clearRect(0, 0, w, h);
-  const pad = { t: 18, r: 16, b: 36, l: 54 };
+  const pad = { t: 22, r: 16, b: 40, l: 58 };
   const plotW = w - pad.l - pad.r;
   const plotH = h - pad.t - pad.b;
-  const max = Math.max(...series.flatMap((s) => s.values), 1);
+  const max = Math.max(...series.flatMap((s) => s.fat), 1);
+  const n = 12;
+  const groupW = plotW / n;
+  const seriesCount = Math.max(series.length, 1);
+  const gap = seriesCount > 1 ? 3 : 0;
+  const barW = Math.max(4, Math.min(seriesCount === 1 ? 28 : 14, (groupW * 0.72 - gap * (seriesCount - 1)) / seriesCount));
+  const totalBarsW = seriesCount * barW + (seriesCount - 1) * gap;
+  const hover = charts.hoverMonth;
+  const hits = [];
+
   ctx.strokeStyle = "#e6e8f0";
   ctx.lineWidth = 1;
+  ctx.fillStyle = "#8b909c";
+  ctx.font = "11px Outfit, sans-serif";
+  ctx.textAlign = "right";
+  ctx.textBaseline = "middle";
   for (let i = 0; i <= 4; i++) {
-    const y = pad.t + (plotH * i) / 4;
-    ctx.beginPath(); ctx.moveTo(pad.l, y); ctx.lineTo(w - pad.r, y); ctx.stroke();
-  }
-  series.forEach((s) => {
-    ctx.strokeStyle = s.color;
-    ctx.lineWidth = s.emphasis ? 2.8 : 1.6;
-    ctx.globalAlpha = s.emphasis ? 1 : 0.55;
+    const value = (max * i) / 4;
+    const y = pad.t + plotH - (plotH * i) / 4;
     ctx.beginPath();
-    s.values.forEach((v, i) => {
-      const x = pad.l + (plotW * i) / Math.max(s.values.length - 1, 1);
-      const y = pad.t + plotH - (v / max) * plotH;
-      if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
-    });
+    ctx.moveTo(pad.l, y);
+    ctx.lineTo(w - pad.r, y);
     ctx.stroke();
-    if (s.emphasis) {
-      s.values.forEach((v, i) => {
-        const x = pad.l + (plotW * i) / Math.max(s.values.length - 1, 1);
-        const y = pad.t + plotH - (v / max) * plotH;
-        const selected = state.periodMonth === i;
-        ctx.fillStyle = selected ? "#1c2230" : s.color;
-        ctx.beginPath(); ctx.arc(x, y, selected ? 5 : 3.2, 0, Math.PI * 2); ctx.fill();
-      });
+    const label = value >= 1e6 ? `${(value / 1e6).toFixed(1)} mi` : value >= 1e3 ? `${Math.round(value / 1e3)} mil` : `${Math.round(value)}`;
+    ctx.fillText(label, pad.l - 8, y);
+  }
+
+  for (let i = 0; i < n; i++) {
+    const gx = pad.l + i * groupW;
+    const selected = state.periodMonth === i;
+    const isHot = hover === i;
+    if (selected || isHot) {
+      ctx.fillStyle = selected ? "rgba(181,25,26,0.08)" : "rgba(27,42,74,0.04)";
+      ctx.fillRect(gx + 1, pad.t, groupW - 2, plotH);
     }
-  });
-  ctx.globalAlpha = 1;
+    hits.push({ index: i, x: gx, y: pad.t, w: groupW, h: plotH });
+
+    series.forEach((s, sIndex) => {
+      const fat = s.fat[i] || 0;
+      if (fat <= 0) return;
+      const bh = Math.max(2, (fat / max) * plotH);
+      const x = gx + (groupW - totalBarsW) / 2 + sIndex * (barW + gap);
+      const y = pad.t + plotH - bh;
+      ctx.globalAlpha = s.emphasis ? 1 : 0.55;
+      ctx.fillStyle = selected && s.emphasis ? "#1c2230" : s.color;
+      roundTopBar(ctx, x, y, barW, bh, 4);
+      ctx.fill();
+    });
+    ctx.globalAlpha = 1;
+  }
+
   ctx.fillStyle = "#667085";
   ctx.font = "12px Outfit, sans-serif";
   ctx.textAlign = "center";
+  ctx.textBaseline = "alphabetic";
   MONTHS_SHORT.forEach((m, i) => {
-    const x = pad.l + (plotW * i) / 11;
+    const x = pad.l + i * groupW + groupW / 2;
     ctx.fillText(m, x, h - 12);
   });
-  canvas._trendHit = { pad, plotW, plotH, n: 12 };
+
+  canvas._trendHit = { pad, plotW, plotH, n, hits, series };
+}
+
+function trendMonthAt(canvas, clientX, clientY) {
+  const hit = canvas._trendHit;
+  if (!hit) return null;
+  const rect = canvas.getBoundingClientRect();
+  const x = clientX - rect.left;
+  const y = clientY - rect.top;
+  return hit.hits.find((spot) => x >= spot.x && x <= spot.x + spot.w && y >= spot.y && y <= spot.y + spot.h) || null;
+}
+
+function trendTooltipHtml(monthIndex) {
+  const series = charts.trendSeries || [];
+  const month = MONTHS[monthIndex] || MONTHS_SHORT[monthIndex];
+  const rows = series.map((s) => {
+    const fat = s.fat[monthIndex] || 0;
+    const vol = s.vol[monthIndex] || 0;
+    return `<div class="row"><span><i class="dot" style="background:${s.color}"></i>${s.year}</span><b>${moneyFmt.format(fat)} · ${numFmt.format(vol)} un.</b></div>`;
+  }).join("");
+  return `<b>${esc(month)}</b><div class="tip-k">Faturamento · Volume</div>${rows}`;
 }
 
 function drawDonut(canvas, slices, total) {
@@ -553,14 +612,26 @@ function renderKpis(curRows, prevRows) {
 function renderTrend(rows) {
   const years = state.meta.years.slice(-3);
   const series = years.map((y) => {
-    const values = Array(12).fill(0);
-    for (const r of rows) if (r.y === y) values[r.m] += r.fat;
-    return { year: y, color: y === state.analysisYear ? "#b5191a" : "#9aa3b5", values, emphasis: y === state.analysisYear };
+    const fat = Array(12).fill(0);
+    const vol = Array(12).fill(0);
+    for (const r of rows) {
+      if (r.y !== y) continue;
+      fat[r.m] += r.fat;
+      vol[r.m] += r.vol;
+    }
+    return {
+      year: y,
+      color: y === state.analysisYear ? "#b5191a" : "#9aa3b5",
+      fat,
+      vol,
+      emphasis: y === state.analysisYear
+    };
   });
+  charts.trendSeries = series;
   drawTrend($("trend"), series);
   const scope = scopeLabel();
   $("chartSub").textContent = scope ? `${scope} · ${years.join(" · ")}` : `Comparativo ${years.join(" · ")}`;
-  $("chartSummary").textContent = `Evolução mensal de faturamento para ${years.join(", ")}${scope ? ` no recorte ${scope}` : ""}.`;
+  $("chartSummary").textContent = `Evolução mensal de faturamento e volume para ${years.join(", ")}${scope ? ` no recorte ${scope}` : ""}.`;
 }
 
 function renderDonut(rows) {
@@ -569,8 +640,8 @@ function renderDonut(rows) {
   const total = agg.reduce((s, a) => s + a.fat, 0) || 1;
   const head = agg.slice(0, 8);
   const rest = agg.slice(8).reduce((s, a) => s + a.fat, 0);
-  const slices = head.map((a) => ({ key: a.key, value: a.fat, color: colorOf(a.key) }));
-  if (rest > 0) slices.push({ key: "Outros", value: rest, color: "#c5cad6" });
+  const slices = head.map((a) => ({ key: a.key, value: a.fat, color: colorOf(a.key), lojasN: a.lojas?.size || 0 }));
+  if (rest > 0) slices.push({ key: "Outros", value: rest, color: "#c5cad6", lojasN: 0 });
   drawDonut($("donut"), slices, total);
   $("donutTotal").textContent = moneyFmt.format(total);
   $("donutCaption").textContent = DIMS.find((d) => d.key === state.donutDim)?.label || "";
@@ -580,13 +651,19 @@ function renderDonut(rows) {
     donutSub.textContent = scope ? `Participação no período · ${scope}` : "Participação no período";
   }
   state.menuOptions._donut = slices.filter((s) => s.key !== "Outros").map((s) => s.key);
-  $("donutLegend").innerHTML = slices.map((s, idx) =>
-    `<button type="button" class="slice" data-slice-dim="${state.donutDim}" data-slice-opt="${idx}" ${s.key === "Outros" ? "disabled" : ""}>
+  const showLojas = state.donutDim === "uf" || state.donutDim === "grupo";
+  $("donutLegend").innerHTML = slices.map((s, idx) => {
+    const tip = s.key === "Outros"
+      ? ""
+      : showLojas
+        ? ` title="${esc(s.key)} · ${numFmt.format(s.lojasN)} ${s.lojasN === 1 ? "loja" : "lojas"} · ${moneyFmt.format(s.value)}"`
+        : ` title="${esc(s.key)} · ${moneyFmt.format(s.value)}"`;
+    return `<button type="button" class="slice" data-slice-dim="${state.donutDim}" data-slice-opt="${idx}" ${s.key === "Outros" ? "disabled" : ""}${tip}>
       <i style="background:${s.color}"></i>
       <span>${esc(s.key)}</span>
       <b>${((s.value / total) * 100).toFixed(1)}%</b>
-    </button>`
-  ).join("");
+    </button>`;
+  }).join("");
 }
 
 function fillItemFilters(baseRows) {
@@ -699,6 +776,128 @@ function renderRankings(curRows, prevRows) {
     </tr>`).join("") || `<tr><td colspan="6" class="empty-row">Nenhuma loja neste recorte.</td></tr>`;
 }
 
+function ufHeatColor(fat, maxFat) {
+  if (!fat || !maxFat) return "#e7e9f0";
+  const t = Math.min(1, fat / maxFat);
+  if (t < 0.2) return "#f3c5c8";
+  if (t < 0.4) return "#e08a90";
+  if (t < 0.65) return "#c94a52";
+  return "#8e1214";
+}
+
+function buildUfStats(rows) {
+  const map = new Map();
+  for (const r of rows) {
+    const cur = map.get(r.uf) || { key: r.uf, fat: 0, vol: 0, lojas: new Set() };
+    cur.fat += r.fat;
+    cur.vol += r.vol;
+    cur.lojas.add(r.cnpj || r.loja);
+    map.set(r.uf, cur);
+  }
+  const list = [...map.values()].map((u) => ({
+    key: u.key,
+    fat: u.fat,
+    vol: u.vol,
+    lojasN: u.lojas.size
+  })).sort((a, b) => b.fat - a.fat || a.key.localeCompare(b.key, "pt-BR"));
+  const maxFat = list.reduce((m, u) => Math.max(m, u.fat), 0);
+  return { list, maxFat, byKey: new Map(list.map((u) => [u.key, u])) };
+}
+
+function ensureBrazilMap() {
+  const svg = $("brazilSvg");
+  if (!svg || svg.dataset.ready === "1" || typeof BRAZIL_PATHS === "undefined") return;
+  svg.setAttribute("viewBox", typeof BRAZIL_VIEW !== "undefined" ? BRAZIL_VIEW : "0 0 440 470");
+  const keys = Object.keys(BRAZIL_PATHS).filter((uf) => uf !== "DF");
+  keys.push("DF");
+  svg.innerHTML = keys.map((uf) => `<path data-uf="${uf}" d="${BRAZIL_PATHS[uf]}"></path>`).join("");
+  svg.dataset.ready = "1";
+}
+
+function paintBrazilMap() {
+  ensureBrazilMap();
+  const svg = $("brazilSvg");
+  if (!svg) return;
+  const picked = state.filters.uf;
+  const hot = charts.hoverUf;
+  svg.querySelectorAll("path[data-uf]").forEach((path) => {
+    const row = charts.ufByKey.get(path.dataset.uf);
+    path.setAttribute("fill", ufHeatColor(row ? row.fat : 0, charts.ufMaxFat || 0));
+    path.classList.toggle("is-on", picked.has(path.dataset.uf));
+    path.classList.toggle("is-hot", hot === path.dataset.uf);
+  });
+}
+
+function placeTip(x, y, html) {
+  const tip = $("tooltip");
+  tip.innerHTML = html;
+  tip.hidden = false;
+  tip.style.left = "0px";
+  tip.style.top = "0px";
+  const rect = tip.getBoundingClientRect();
+  let left = x + 14;
+  let top = y + 14;
+  if (left + rect.width > window.innerWidth - 8) left = x - rect.width - 12;
+  if (top + rect.height > window.innerHeight - 8) top = y - rect.height - 12;
+  tip.style.left = `${Math.max(8, left)}px`;
+  tip.style.top = `${Math.max(8, top)}px`;
+}
+
+function hideTip(kind) {
+  const tip = $("tooltip");
+  if (kind && tip.dataset.kind !== kind) return;
+  tip.hidden = true;
+  tip.dataset.kind = "";
+}
+
+function showTip(x, y, html, kind) {
+  $("tooltip").dataset.kind = kind || "";
+  placeTip(x, y, html);
+}
+
+function ufTooltipHtml(uf) {
+  const row = charts.ufByKey.get(uf);
+  const lojasN = row ? row.lojasN : 0;
+  const fat = row ? row.fat : 0;
+  const lojaLabel = lojasN === 1 ? "1 loja" : `${numFmt.format(lojasN)} lojas`;
+  return `<b>${esc(uf)}</b><div>${lojaLabel}</div><div>${moneyFmt.format(fat)}</div>`;
+}
+
+function renderUfMap(curRows) {
+  const stats = buildUfStats(curRows);
+  charts.ufByKey = stats.byKey;
+  charts.ufMaxFat = stats.maxFat;
+  const scope = scopeLabel();
+  const picked = [...state.filters.uf];
+  $("ufSub").textContent = scope
+    ? `Lojas por estado no recorte · ${scope}`
+    : "Passe o mouse no estado para ver quantas lojas venderam no recorte.";
+  $("ufCut").textContent = picked.length
+    ? `Recorte: ${picked.sort().join(", ")}`
+    : `Recorte: todos os estados · ${numFmt.format(stats.list.length)} UFs com venda`;
+  paintBrazilMap();
+  $("ufList").innerHTML = stats.list.length
+    ? stats.list.map((u) => `
+      <button type="button" class="uf-row ${state.filters.uf.has(u.key) ? "is-on" : ""} ${charts.hoverUf === u.key ? "is-hot" : ""}" data-uf-pick="${esc(u.key)}">
+        <span class="uf-code">${esc(u.key)}</span>
+        <span class="uf-meta">${numFmt.format(u.lojasN)} ${u.lojasN === 1 ? "loja" : "lojas"}</span>
+        <b>${moneyFmt.format(u.fat)}</b>
+      </button>`).join("")
+    : `<p class="menu-empty">Nenhuma UF neste recorte.</p>`;
+}
+
+function toggleUf(uf) {
+  if (!uf || !state.filters.uf) return;
+  const set = state.filters.uf;
+  if (set.has(uf) && set.size === 1) set.clear();
+  else {
+    set.clear();
+    set.add(uf);
+  }
+  pruneIncompatibleFilters();
+  renderAll();
+}
+
 function renderSearch() {
   const box = $("searchHit");
   const q = state.search.trim();
@@ -740,6 +939,7 @@ function renderAll() {
   renderKpis(curRows, prevRows);
   renderTrend(base);
   renderDonut(curRows);
+  renderUfMap(curRows);
   renderItems(curRows);
   renderRankings(curRows, prevRows);
   renderSearch();
@@ -864,10 +1064,12 @@ function wire() {
       return;
     }
 
-    const chipBtn = t.closest("[data-chip]");
+    const chipBtn = t.closest("#chips [data-chip], .chip[data-chip]");
     if (chipBtn) {
+      e.preventDefault();
       const chips = $("chips")._chips || [];
-      removeChipFilter(chips[Number(chipBtn.getAttribute("data-chip"))]);
+      const chip = chips[Number(chipBtn.getAttribute("data-chip"))];
+      if (chip) removeChipFilter(chip);
       return;
     }
 
@@ -985,6 +1187,16 @@ function wire() {
 
   $("btnClear").addEventListener("click", clearFilters);
   $("btnSideClear").addEventListener("click", clearFilters);
+  $("btnSideClearAll")?.addEventListener("click", clearFilters);
+  $("chips").addEventListener("click", (e) => {
+    const chipBtn = e.target.closest("[data-chip]");
+    if (!chipBtn) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const chips = $("chips")._chips || [];
+    const chip = chips[Number(chipBtn.getAttribute("data-chip"))];
+    if (chip) removeChipFilter(chip);
+  });
   $("itemGrupo").addEventListener("change", (e) => {
     const idx = e.target.value;
     state.itemGrupo = idx === "" ? "" : (state.menuOptions.itemGrupo?.[Number(idx)] || "");
@@ -1005,19 +1217,82 @@ function wire() {
     const value = state.menuOptions[dim]?.[opt];
     toggleFilter(dim, value, t.checked);
   });
+
+  const brazilSvg = $("brazilSvg");
+  brazilSvg.addEventListener("pointermove", (e) => {
+    const path = e.target.closest("path[data-uf]");
+    const uf = path?.dataset.uf || null;
+    charts.hoverUf = uf;
+    paintBrazilMap();
+    document.querySelectorAll("#ufList .uf-row").forEach((btn) => {
+      btn.classList.toggle("is-hot", btn.getAttribute("data-uf-pick") === uf);
+    });
+    if (!uf) { hideTip("ufmap"); return; }
+    showTip(e.clientX, e.clientY, ufTooltipHtml(uf), "ufmap");
+  });
+  brazilSvg.addEventListener("pointerleave", () => {
+    charts.hoverUf = null;
+    hideTip("ufmap");
+    paintBrazilMap();
+    document.querySelectorAll("#ufList .uf-row").forEach((btn) => btn.classList.remove("is-hot"));
+  });
+  brazilSvg.addEventListener("click", (e) => {
+    const path = e.target.closest("path[data-uf]");
+    if (path) toggleUf(path.dataset.uf);
+  });
+
+  $("ufList").addEventListener("pointermove", (e) => {
+    const btn = e.target.closest("[data-uf-pick]");
+    const uf = btn?.getAttribute("data-uf-pick") || null;
+    charts.hoverUf = uf;
+    paintBrazilMap();
+    document.querySelectorAll("#ufList .uf-row").forEach((row) => {
+      row.classList.toggle("is-hot", row.getAttribute("data-uf-pick") === uf);
+    });
+    if (!uf) { hideTip("uflist"); return; }
+    showTip(e.clientX, e.clientY, ufTooltipHtml(uf), "uflist");
+  });
+  $("ufList").addEventListener("pointerleave", () => {
+    charts.hoverUf = null;
+    hideTip("uflist");
+    paintBrazilMap();
+    document.querySelectorAll("#ufList .uf-row").forEach((btn) => btn.classList.remove("is-hot"));
+  });
+  $("ufList").addEventListener("click", (e) => {
+    const btn = e.target.closest("[data-uf-pick]");
+    if (btn) toggleUf(btn.getAttribute("data-uf-pick"));
+  });
   $("q").addEventListener("input", (e) => {
     state.search = e.target.value;
     renderSearch();
   });
 
-  $("trend").addEventListener("click", (e) => {
-    const hit = $("trend")._trendHit;
-    if (!hit || !state.meta) return;
-    const rect = $("trend").getBoundingClientRect();
-    const x = e.clientX - rect.left;
-    if (x < hit.pad.l || x > hit.pad.l + hit.plotW) return;
-    const i = Math.round(((x - hit.pad.l) / hit.plotW) * 11);
-    state.periodMonth = state.periodMonth === i ? null : i;
+  const trend = $("trend");
+  trend.addEventListener("pointermove", (e) => {
+    if (!state.meta) return;
+    const spot = trendMonthAt(trend, e.clientX, e.clientY);
+    const next = spot ? spot.index : null;
+    trend.style.cursor = spot ? "pointer" : "default";
+    if (charts.hoverMonth !== next) {
+      charts.hoverMonth = next;
+      drawTrend(trend, charts.trendSeries || []);
+    }
+    if (spot == null) {
+      hideTip("trend");
+      return;
+    }
+    showTip(e.clientX, e.clientY, trendTooltipHtml(spot.index), "trend");
+  });
+  trend.addEventListener("pointerleave", () => {
+    charts.hoverMonth = null;
+    hideTip("trend");
+    if (state.meta) drawTrend(trend, charts.trendSeries || []);
+  });
+  trend.addEventListener("click", (e) => {
+    if (!state.meta) return;
+    const spot = trendMonthAt(trend, e.clientX, e.clientY);
+    if (!spot) return;
+    state.periodMonth = state.periodMonth === spot.index ? null : spot.index;
     renderAll();
   });
 
