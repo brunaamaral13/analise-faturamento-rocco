@@ -837,13 +837,17 @@ function renderItems(baseRows) {
 }
 
 function renderRankings(curRows, prevRows) {
-  const prevGrupo = new Map(aggregateBy(prevRows, "grupo").map((a) => [a.key, a.fat]));
+  const prevGrupo = new Map(aggregateBy(prevRows, "grupo").map((a) => [a.key, a]));
   const prevLoja = new Map(aggregateBy(prevRows, "loja").map((a) => [a.key, a.fat]));
-  let grupos = aggregateBy(curRows, "grupo").map((a) => ({
-    ...a,
-    lojasN: a.lojas.size,
-    pct: pctChange(a.fat, prevGrupo.get(a.key) || 0)
-  }));
+  let grupos = aggregateBy(curRows, "grupo").map((a) => {
+    const prev = prevGrupo.get(a.key);
+    return {
+      ...a,
+      lojasN: a.lojas.size,
+      pct: pctChange(a.fat, prev?.fat || 0),
+      pctVol: pctChange(a.vol, prev?.vol || 0)
+    };
+  });
   let lojas = aggregateBy(curRows, "loja").map((a) => ({
     ...a,
     pct: pctChange(a.fat, prevLoja.get(a.key) || 0)
@@ -852,7 +856,9 @@ function renderRankings(curRows, prevRows) {
   const sortVal = (row, key) => {
     if (key === "name") return row.key;
     if (key === "lojas") return row.lojasN;
+    if (key === "vol") return row.vol;
     if (key === "pct") return row.pct ?? -Infinity;
+    if (key === "pctVol") return row.pctVol ?? -Infinity;
     return row.fat;
   };
   grupos.sort((a, b) => {
@@ -885,7 +891,9 @@ function renderRankings(curRows, prevRows) {
       <td class="num">${numFmt.format(g.lojasN)}</td>
       <td class="num">${moneyFmt.format(g.fat)}</td>
       <td class="num ${g.pct != null && g.pct < 0 ? "is-neg" : "is-pos"}">${g.pct == null ? "—" : pctFmt.format(g.pct)}</td>
-    </tr>`).join("") || `<tr><td colspan="5" class="empty-row">Nenhum grupo neste recorte.</td></tr>`;
+      <td class="num">${numFmt.format(g.vol)}</td>
+      <td class="num ${g.pctVol != null && g.pctVol < 0 ? "is-neg" : "is-pos"}">${g.pctVol == null ? "—" : pctFmt.format(g.pctVol)}</td>
+    </tr>`).join("") || `<tr><td colspan="7" class="empty-row">Nenhum grupo neste recorte.</td></tr>`;
   $("lojaBody").innerHTML = lojas.slice(0, 50).map((l, i) => `
     <tr>
       <td class="col-pos">${i + 1}</td>
