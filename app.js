@@ -21,7 +21,7 @@ const state = {
   donutDim: "grupo",
   search: "",
   openMenu: null,
-  options: null,
+  menuOptions: {},
   itemGrupo: "",
   itemLoja: "",
   itemMetric: "fat",
@@ -174,17 +174,66 @@ function parseCsv(text) {
   };
 }
 
-function buildOptions(rows) {
-  const opts = {};
-  for (const dim of DIMS) {
-    const map = new Map();
-    for (const r of rows) {
-      const v = r[dim.field];
-      map.set(v, (map.get(v) || 0) + r.fat);
-    }
-    opts[dim.key] = [...map.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0], "pt-BR"));
+function optionsFor(dimKey) {
+  const dim = DIMS.find((d) => d.key === dimKey);
+  if (!dim || !state.meta) return [];
+  const win = windowFor(state.analysisYear);
+  const map = new Map();
+  for (const r of filteredRows(dimKey)) {
+    if (!inWindow(r, win)) continue;
+    const v = r[dim.field];
+    map.set(v, (map.get(v) || 0) + r.fat);
   }
-  return opts;
+  return [...map.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0], "pt-BR"));
+}
+
+function otherActiveFilters(exceptKey) {
+  return DIMS.filter((d) => d.key !== exceptKey && state.filters[d.key].size > 0);
+}
+
+function scopeLabel() {
+  const parts = [];
+  for (const dim of DIMS) {
+    const vals = [...state.filters[dim.key]];
+    if (!vals.length) continue;
+    parts.push(vals.length === 1 ? `${dim.label}: ${vals[0]}` : `${dim.label}: ${vals.length} selecionados`);
+  }
+  if (state.periodMonth != null) parts.push(`Mês: ${MONTHS[state.periodMonth]}`);
+  return parts.join(" · ");
+}
+
+function syncItemFiltersFromGlobal() {
+  const grupos = state.filters.grupo;
+  const lojas = state.filters.loja;
+  if (grupos.size === 1) state.itemGrupo = [...grupos][0];
+  else if (state.itemGrupo && grupos.size && !grupos.has(state.itemGrupo)) {
+    state.itemGrupo = "";
+    state.itemLoja = "";
+  }
+  if (lojas.size === 1) state.itemLoja = [...lojas][0];
+  else if (state.itemLoja && lojas.size && !lojas.has(state.itemLoja)) {
+    state.itemLoja = "";
+  }
+}
+
+function pruneIncompatibleFilters() {
+  let changed = false;
+  for (const dim of DIMS) {
+    const set = state.filters[dim.key];
+    if (!set.size) continue;
+    const allowed = new Set(optionsFor(dim.key).map(([v]) => v));
+    for (const v of [...set]) {
+      if (!allowed.has(v)) {
+        set.delete(v);
+        changed = true;
+      }
+    }
+  }
+  const beforeGrupo = state.itemGrupo;
+  const beforeLoja = state.itemLoja;
+  syncItemFiltersFromGlobal();
+  if (state.itemGrupo !== beforeGrupo || state.itemLoja !== beforeLoja) changed = true;
+  return changed;
 }
 
 function windowFor(year) {
@@ -218,9 +267,9 @@ function activeFilterGroups() {
   const groups = [];
   for (const dim of DIMS) {
     const values = [...state.filters[dim.key]];
-    if (values.length) groups.push({ label: dim.label, values });
+    if (values.length) groups.push({ key: dim.key, label: dim.label, values });
   }
-  if (state.periodMonth != null) groups.push({ label: "Mês", values: [MONTHS[state.periodMonth]] });
+  if (state.periodMonth != null) groups.push({ key: "mes", label: "Mês", values: [MONTHS[state.periodMonth]] });
   return groups;
 }
 
@@ -278,17 +327,23 @@ function colorOf(key) {
 function renderSideFilters() {
   const box = $("sideFilters");
   const list = $("sideFilterList");
+  const clearBtn = $("btnSideClear");
   if (!state.meta) {
     box.hidden = true;
     return;
   }
   const groups = activeFilterGroups();
   box.hidden = false;
+  clearBtn.hidden = !groups.length;
   if (!groups.length) {
     list.innerHTML = `<li class="is-empty">Nenhum recorte ativo</li>`;
     return;
   }
-  list.innerHTML = groups.map((g) => `<li><b>${esc(g.label)}:</b> ${esc(g.values.join(", "))}</li>`).join("");
+  list.innerHTML = groups.map((g) => `
+    <li>
+      <span><b>${esc(g.label)}:</b> ${esc(g.values.join(", "))}</span>
+      <button type="button" class="side-filter-x" data-side-clear-dim="${esc(g.key)}" aria-label="Limpar ${esc(g.label)}">×</button>
+    </li>`).join("");
 }
 
 function renderYearSwitch() {
@@ -301,11 +356,26 @@ function renderYearSwitch() {
 
 function renderFilterBar() {
   const bar = $("filterBar");
+  state.menuOptions = {};
   bar.innerHTML = DIMS.map((dim) => {
     const set = state.filters[dim.key];
     const label = set.size === 0 ? "Todos" : set.size === 1 ? [...set][0] : `${set.size} selecionados`;
     const open = state.openMenu === dim.key;
-    const opts = (state.options?.[dim.key] || []).slice(0, 80);
+    const opts = optionsFor(dim.key).slice(0, 120);
+    state.menuOptions[dim.key] = opts.map(([value]) => value);
+    const others = otherActiveFilters(dim.key);
+    const scopeHint = others.length
+      ? `Filtrado por: ${others.map((d) => {
+          const vals = [...state.filters[d.key]];
+          return `${d.label} ${vals.length === 1 ? vals[0] : `(${vals.length})`}`;
+        }).join(" · ")}`
+      : "";
+    const listHtml = opts.length
+      ? opts.map(([value, fat], idx) => {
+          const on = set.has(value);
+          return `<label class="menu-item"><input type="checkbox" data-dim="${dim.key}" data-opt="${idx}" ${on ? "checked" : ""}><span title="${esc(value)}">${esc(value)}</span><small>${moneyFmt.format(fat)}</small></label>`;
+        }).join("")
+      : `<p class="menu-empty">Nenhuma opção neste recorte.</p>`;
     return `
       <div class="menu ${open ? "is-on" : ""}" data-menu="${dim.key}">
         <button type="button" class="menu-btn" data-open="${dim.key}">
@@ -315,27 +385,71 @@ function renderFilterBar() {
         <div class="menu-panel" ${open ? "" : "hidden"}>
           <div class="menu-actions">
             <button type="button" data-clear-dim="${dim.key}">Limpar</button>
+            ${opts.length ? `<span class="menu-count">${numFmt.format(opts.length)}</span>` : ""}
           </div>
-          <div class="menu-list">
-            ${opts.map(([value, fat]) => {
-              const on = set.has(value);
-              return `<label class="menu-item"><input type="checkbox" data-dim="${dim.key}" value="${esc(value)}" ${on ? "checked" : ""}><span title="${esc(value)}">${esc(value)}</span><small>${moneyFmt.format(fat)}</small></label>`;
-            }).join("")}
-          </div>
+          ${scopeHint ? `<p class="menu-scope">${esc(scopeHint)}</p>` : ""}
+          <div class="menu-list">${listHtml}</div>
         </div>
       </div>`;
   }).join("");
   $("btnClear").hidden = !hasActiveFilters();
+  const hint = document.querySelector("#sec-visao .hint");
+  if (hint) {
+    const scope = scopeLabel();
+    hint.textContent = scope
+      ? `Recorte ativo — ${scope}. Todos os painéis, rankings e listas usam só esses dados.`
+      : "Comece pelo vendedor. Depois cruze grupo econômico, loja, UF ou categoria — os painéis e o ranking de itens acompanham o recorte. A data vale pelo mês inteiro.";
+  }
 }
 
 function renderChips() {
   const el = $("chips");
-  const groups = activeFilterGroups();
-  if (!groups.length) { el.hidden = true; el.innerHTML = ""; return; }
+  const chips = [];
+  for (const dim of DIMS) {
+    for (const v of state.filters[dim.key]) {
+      chips.push({ kind: "dim", dim: dim.key, value: v, label: `${dim.label}: ${v}` });
+    }
+  }
+  if (state.periodMonth != null) {
+    chips.push({ kind: "mes", label: `Mês: ${MONTHS[state.periodMonth]}` });
+  }
+  el._chips = chips;
+  if (!chips.length) { el.hidden = true; el.innerHTML = ""; return; }
   el.hidden = false;
-  el.innerHTML = groups.flatMap((g) =>
-    g.values.map((v) => `<button type="button" class="chip" data-chip-dim="${esc(g.label)}" data-chip-val="${esc(v)}">${esc(g.label)}: ${esc(v)} <span aria-hidden="true">×</span></button>`)
+  el.innerHTML = chips.map((chip, index) =>
+    `<span class="chip">${esc(chip.label)}<button type="button" data-chip="${index}" aria-label="Remover ${esc(chip.label)}">×</button></span>`
   ).join("");
+}
+
+function removeChipFilter(chip) {
+  if (!chip) return;
+  if (chip.kind === "mes") {
+    state.periodMonth = null;
+  } else if (chip.kind === "dim" && state.filters[chip.dim]) {
+    state.filters[chip.dim].delete(chip.value);
+    if (chip.dim === "grupo" && state.itemGrupo === chip.value) {
+      state.itemGrupo = "";
+      state.itemLoja = "";
+    }
+    if (chip.dim === "loja" && state.itemLoja === chip.value) state.itemLoja = "";
+  }
+  pruneIncompatibleFilters();
+  renderAll();
+}
+
+function clearDimFilter(dimKey) {
+  if (dimKey === "mes") {
+    state.periodMonth = null;
+  } else if (state.filters[dimKey]) {
+    state.filters[dimKey].clear();
+    if (dimKey === "grupo") {
+      state.itemGrupo = "";
+      state.itemLoja = "";
+    }
+    if (dimKey === "loja") state.itemLoja = "";
+  }
+  pruneIncompatibleFilters();
+  renderAll();
 }
 
 function drawTrend(canvas, series) {
@@ -444,8 +558,9 @@ function renderTrend(rows) {
     return { year: y, color: y === state.analysisYear ? "#b5191a" : "#9aa3b5", values, emphasis: y === state.analysisYear };
   });
   drawTrend($("trend"), series);
-  $("chartSub").textContent = `Comparativo ${years.join(" · ")}`;
-  $("chartSummary").textContent = `Evolução mensal de faturamento para ${years.join(", ")}.`;
+  const scope = scopeLabel();
+  $("chartSub").textContent = scope ? `${scope} · ${years.join(" · ")}` : `Comparativo ${years.join(" · ")}`;
+  $("chartSummary").textContent = `Evolução mensal de faturamento para ${years.join(", ")}${scope ? ` no recorte ${scope}` : ""}.`;
 }
 
 function renderDonut(rows) {
@@ -459,8 +574,14 @@ function renderDonut(rows) {
   drawDonut($("donut"), slices, total);
   $("donutTotal").textContent = moneyFmt.format(total);
   $("donutCaption").textContent = DIMS.find((d) => d.key === state.donutDim)?.label || "";
-  $("donutLegend").innerHTML = slices.map((s) =>
-    `<button type="button" class="slice" data-slice-dim="${state.donutDim}" data-slice-val="${esc(s.key)}" ${s.key === "Outros" ? "disabled" : ""}>
+  const donutSub = $("donutSub");
+  if (donutSub) {
+    const scope = scopeLabel();
+    donutSub.textContent = scope ? `Participação no período · ${scope}` : "Participação no período";
+  }
+  state.menuOptions._donut = slices.filter((s) => s.key !== "Outros").map((s) => s.key);
+  $("donutLegend").innerHTML = slices.map((s, idx) =>
+    `<button type="button" class="slice" data-slice-dim="${state.donutDim}" data-slice-opt="${idx}" ${s.key === "Outros" ? "disabled" : ""}>
       <i style="background:${s.color}"></i>
       <span>${esc(s.key)}</span>
       <b>${((s.value / total) * 100).toFixed(1)}%</b>
@@ -469,23 +590,28 @@ function renderDonut(rows) {
 }
 
 function fillItemFilters(baseRows) {
-  const grupos = [...new Set(baseRows.map((r) => r.grupo))].sort((a, b) => a.localeCompare(b, "pt-BR"));
+  let grupos = [...new Set(baseRows.map((r) => r.grupo))].sort((a, b) => a.localeCompare(b, "pt-BR"));
+  if (state.filters.grupo.size) grupos = grupos.filter((g) => state.filters.grupo.has(g));
   const lojas = [...new Set(
     baseRows
-      .filter((r) => !state.itemGrupo || r.grupo === state.itemGrupo)
+      .filter((r) => {
+        if (state.itemGrupo && r.grupo !== state.itemGrupo) return false;
+        if (state.filters.loja.size && !state.filters.loja.has(r.loja)) return false;
+        return true;
+      })
       .map((r) => r.loja)
   )].sort((a, b) => a.localeCompare(b, "pt-BR"));
 
   const gSel = $("itemGrupo");
   const lSel = $("itemLoja");
+  if (state.itemGrupo && !grupos.includes(state.itemGrupo)) state.itemGrupo = "";
+  if (state.itemLoja && !lojas.includes(state.itemLoja)) state.itemLoja = "";
   const gVal = state.itemGrupo;
   const lVal = state.itemLoja;
-  gSel.innerHTML = `<option value="">Todos os grupos</option>` + grupos.map((g) => `<option value="${esc(g)}" ${g === gVal ? "selected" : ""}>${esc(g)}</option>`).join("");
-  lSel.innerHTML = `<option value="">Todas as lojas</option>` + lojas.map((l) => `<option value="${esc(l)}" ${l === lVal ? "selected" : ""}>${esc(l)}</option>`).join("");
-  if (lVal && !lojas.includes(lVal)) {
-    state.itemLoja = "";
-    lSel.value = "";
-  }
+  state.menuOptions.itemGrupo = grupos;
+  state.menuOptions.itemLoja = lojas;
+  gSel.innerHTML = `<option value="">Todos os grupos</option>` + grupos.map((g, i) => `<option value="${i}" ${g === gVal ? "selected" : ""}>${esc(g)}</option>`).join("");
+  lSel.innerHTML = `<option value="">Todas as lojas</option>` + lojas.map((l, i) => `<option value="${i}" ${l === lVal ? "selected" : ""}>${esc(l)}</option>`).join("");
 }
 
 function renderItems(baseRows) {
@@ -495,7 +621,9 @@ function renderItems(baseRows) {
   if (state.itemLoja) rows = rows.filter((r) => r.loja === state.itemLoja);
   const items = topItems(rows, 40);
   const total = items.reduce((s, i) => s + i.fat, 0) || 1;
-  const scope = [state.itemGrupo, state.itemLoja].filter(Boolean).join(" · ") || "recorte geral";
+  const globalScope = scopeLabel();
+  const localScope = [state.itemGrupo, state.itemLoja].filter(Boolean).join(" · ");
+  const scope = localScope || globalScope || "recorte geral";
   $("itemsSub").textContent = `Top títulos por ${state.itemMetric === "vol" ? "volume" : "faturamento"} · ${scope}`;
   $("itemsBody").innerHTML = items.length
     ? items.map((it, i) => `
@@ -543,25 +671,32 @@ function renderRankings(curRows, prevRows) {
     return dir * (ka - kb);
   });
 
-  $("grupoCount").textContent = `${numFmt.format(grupos.length)} grupos no período`;
-  $("lojaCount").textContent = `${numFmt.format(lojas.length)} lojas no período`;
+  const scope = scopeLabel();
+  $("grupoCount").textContent = scope
+    ? `${numFmt.format(grupos.length)} grupos · ${scope}`
+    : `${numFmt.format(grupos.length)} grupos no período`;
+  $("lojaCount").textContent = scope
+    ? `${numFmt.format(lojas.length)} lojas · ${scope}`
+    : `${numFmt.format(lojas.length)} lojas no período`;
+  state.menuOptions.pickGrupo = grupos.slice(0, 40).map((g) => g.key);
+  state.menuOptions.pickLoja = lojas.slice(0, 50).map((l) => l.key);
   $("grupoBody").innerHTML = grupos.slice(0, 40).map((g, i) => `
-    <tr data-pick-grupo="${esc(g.key)}">
+    <tr data-pick-grupo="${i}">
       <td class="col-pos">${i + 1}</td>
-      <td><button type="button" class="linkish" data-pick-grupo="${esc(g.key)}">${esc(g.key)}</button></td>
+      <td><button type="button" class="linkish" data-pick-grupo="${i}">${esc(g.key)}</button></td>
       <td class="num">${numFmt.format(g.lojasN)}</td>
       <td class="num">${moneyFmt.format(g.fat)}</td>
       <td class="num ${g.pct != null && g.pct < 0 ? "is-neg" : "is-pos"}">${g.pct == null ? "—" : pctFmt.format(g.pct)}</td>
-    </tr>`).join("");
+    </tr>`).join("") || `<tr><td colspan="5" class="empty-row">Nenhum grupo neste recorte.</td></tr>`;
   $("lojaBody").innerHTML = lojas.slice(0, 50).map((l, i) => `
     <tr>
       <td class="col-pos">${i + 1}</td>
-      <td><button type="button" class="linkish" data-pick-loja="${esc(l.key)}">${esc(l.key)}</button></td>
+      <td><button type="button" class="linkish" data-pick-loja="${i}">${esc(l.key)}</button></td>
       <td>${esc(l.grupo)}</td>
       <td class="col-vend">${esc(l.vend)}</td>
       <td class="num">${moneyFmt.format(l.fat)}</td>
       <td class="num ${l.pct != null && l.pct < 0 ? "is-neg" : "is-pos"}">${l.pct == null ? "—" : pctFmt.format(l.pct)}</td>
-    </tr>`).join("");
+    </tr>`).join("") || `<tr><td colspan="6" class="empty-row">Nenhuma loja neste recorte.</td></tr>`;
 }
 
 function renderSearch() {
@@ -571,7 +706,7 @@ function renderSearch() {
   const nq = norm(q);
   const hits = [];
   const seen = new Set();
-  for (const r of state.rows) {
+  for (const r of filteredRows()) {
     if (hits.length >= 12) break;
     const keys = [r.loja, r.grupo, r.sku, r.desc];
     if (!keys.some((k) => norm(k).includes(nq))) continue;
@@ -582,13 +717,15 @@ function renderSearch() {
   }
   box.hidden = false;
   $("q").setAttribute("aria-expanded", "true");
+  state.menuOptions.searchLoja = hits.map((r) => r.loja);
   box.innerHTML = hits.length
-    ? hits.map((r) => `<button type="button" data-search-loja="${esc(r.loja)}"><b>${esc(r.loja)}</b><small>${esc(r.grupo)} · ${esc(r.vend)}</small></button>`).join("")
+    ? hits.map((r, i) => `<button type="button" data-search-loja="${i}"><b>${esc(r.loja)}</b><small>${esc(r.grupo)} · ${esc(r.vend)}</small></button>`).join("")
     : `<p class="search-more">Nenhum resultado para “${esc(q)}”.</p>`;
 }
 
 function renderAll() {
   if (!state.meta) return;
+  pruneIncompatibleFilters();
   const base = filteredRows();
   const win = windowFor(state.analysisYear);
   const prevWin = { ...win, y: state.analysisYear - 1 };
@@ -618,7 +755,7 @@ async function ingestText(text, fileName) {
     state.meta = parsed.meta;
     state.analysisYear = parsed.analysisYear;
     state.fileName = fileName || "sell-out.csv";
-    state.options = buildOptions(parsed.rows);
+    state.menuOptions = {};
     state.filters = { vendedor: new Set(), grupo: new Set(), loja: new Set(), uf: new Set(), categoria: new Set() };
     state.periodMonth = null;
     state.itemGrupo = "";
@@ -652,9 +789,15 @@ function readFile(file) {
 }
 
 function toggleFilter(dim, value, on) {
+  if (value == null || value === "") return;
   const set = state.filters[dim];
   if (on) set.add(value); else set.delete(value);
-  state.openMenu = null;
+  if (dim === "grupo" && !on && state.itemGrupo === value) {
+    state.itemGrupo = "";
+    state.itemLoja = "";
+  }
+  if (dim === "loja" && !on && state.itemLoja === value) state.itemLoja = "";
+  pruneIncompatibleFilters();
   renderAll();
 }
 
@@ -711,13 +854,24 @@ function wire() {
 
     const clearDim = t.closest("[data-clear-dim]");
     if (clearDim) {
-      state.filters[clearDim.getAttribute("data-clear-dim")].clear();
-      renderAll();
+      clearDimFilter(clearDim.getAttribute("data-clear-dim"));
       return;
     }
 
-    if (t.matches('input[type="checkbox"][data-dim]')) {
-      toggleFilter(t.getAttribute("data-dim"), t.value, t.checked);
+    const sideClearDim = t.closest("[data-side-clear-dim]");
+    if (sideClearDim) {
+      clearDimFilter(sideClearDim.getAttribute("data-side-clear-dim"));
+      return;
+    }
+
+    const chipBtn = t.closest("[data-chip]");
+    if (chipBtn) {
+      const chips = $("chips")._chips || [];
+      removeChipFilter(chips[Number(chipBtn.getAttribute("data-chip"))]);
+      return;
+    }
+
+    if (t.matches('input[type="checkbox"][data-dim][data-opt]') || t.closest(".menu-item")) {
       return;
     }
 
@@ -740,10 +894,12 @@ function wire() {
     const slice = t.closest("[data-slice-dim]");
     if (slice && !slice.hasAttribute("disabled")) {
       const dim = slice.getAttribute("data-slice-dim");
-      const val = slice.getAttribute("data-slice-val");
+      const opt = Number(slice.getAttribute("data-slice-opt"));
+      const val = state.menuOptions._donut?.[opt];
       if (dim && val && state.filters[dim]) {
         state.filters[dim].clear();
         state.filters[dim].add(val);
+        pruneIncompatibleFilters();
         renderAll();
       }
       return;
@@ -759,24 +915,30 @@ function wire() {
 
     const pickGrupo = t.closest("[data-pick-grupo]");
     if (pickGrupo) {
-      const g = pickGrupo.getAttribute("data-pick-grupo");
-      state.filters.grupo.clear();
-      state.filters.grupo.add(g);
-      state.itemGrupo = g;
-      state.itemLoja = "";
-      renderAll();
-      $("sec-itens").scrollIntoView({ behavior: "smooth", block: "start" });
+      const g = state.menuOptions.pickGrupo?.[Number(pickGrupo.getAttribute("data-pick-grupo"))];
+      if (g) {
+        state.filters.grupo.clear();
+        state.filters.grupo.add(g);
+        state.itemGrupo = g;
+        state.itemLoja = "";
+        pruneIncompatibleFilters();
+        renderAll();
+        $("sec-itens").scrollIntoView({ behavior: "smooth", block: "start" });
+      }
       return;
     }
 
     const pickLoja = t.closest("[data-pick-loja]");
     if (pickLoja) {
-      const l = pickLoja.getAttribute("data-pick-loja");
-      state.filters.loja.clear();
-      state.filters.loja.add(l);
-      state.itemLoja = l;
-      renderAll();
-      $("sec-itens").scrollIntoView({ behavior: "smooth", block: "start" });
+      const l = state.menuOptions.pickLoja?.[Number(pickLoja.getAttribute("data-pick-loja"))];
+      if (l) {
+        state.filters.loja.clear();
+        state.filters.loja.add(l);
+        state.itemLoja = l;
+        pruneIncompatibleFilters();
+        renderAll();
+        $("sec-itens").scrollIntoView({ behavior: "smooth", block: "start" });
+      }
       return;
     }
 
@@ -800,13 +962,16 @@ function wire() {
 
     const searchLoja = t.closest("[data-search-loja]");
     if (searchLoja) {
-      const l = searchLoja.getAttribute("data-search-loja");
-      state.filters.loja.clear();
-      state.filters.loja.add(l);
-      state.itemLoja = l;
-      state.search = "";
-      $("q").value = "";
-      renderAll();
+      const l = state.menuOptions.searchLoja?.[Number(searchLoja.getAttribute("data-search-loja"))];
+      if (l) {
+        state.filters.loja.clear();
+        state.filters.loja.add(l);
+        state.itemLoja = l;
+        state.search = "";
+        $("q").value = "";
+        pruneIncompatibleFilters();
+        renderAll();
+      }
       return;
     }
 
@@ -819,14 +984,26 @@ function wire() {
   });
 
   $("btnClear").addEventListener("click", clearFilters);
+  $("btnSideClear").addEventListener("click", clearFilters);
   $("itemGrupo").addEventListener("change", (e) => {
-    state.itemGrupo = e.target.value;
+    const idx = e.target.value;
+    state.itemGrupo = idx === "" ? "" : (state.menuOptions.itemGrupo?.[Number(idx)] || "");
     state.itemLoja = "";
     renderAll();
   });
   $("itemLoja").addEventListener("change", (e) => {
-    state.itemLoja = e.target.value;
+    const idx = e.target.value;
+    state.itemLoja = idx === "" ? "" : (state.menuOptions.itemLoja?.[Number(idx)] || "");
     renderAll();
+  });
+
+  $("filterBar").addEventListener("change", (e) => {
+    const t = e.target;
+    if (!(t instanceof Element) || !t.matches('input[type="checkbox"][data-dim][data-opt]')) return;
+    const dim = t.getAttribute("data-dim");
+    const opt = Number(t.getAttribute("data-opt"));
+    const value = state.menuOptions[dim]?.[opt];
+    toggleFilter(dim, value, t.checked);
   });
   $("q").addEventListener("input", (e) => {
     state.search = e.target.value;
