@@ -650,20 +650,39 @@ function renderDonut(rows) {
     const scope = scopeLabel();
     donutSub.textContent = scope ? `Participação no período · ${scope}` : "Participação no período";
   }
+  charts.donutSlices = slices;
   state.menuOptions._donut = slices.filter((s) => s.key !== "Outros").map((s) => s.key);
-  const showLojas = state.donutDim === "uf" || state.donutDim === "grupo";
-  $("donutLegend").innerHTML = slices.map((s, idx) => {
-    const tip = s.key === "Outros"
-      ? ""
-      : showLojas
-        ? ` title="${esc(s.key)} · ${numFmt.format(s.lojasN)} ${s.lojasN === 1 ? "loja" : "lojas"} · ${moneyFmt.format(s.value)}"`
-        : ` title="${esc(s.key)} · ${moneyFmt.format(s.value)}"`;
-    return `<button type="button" class="slice" data-slice-dim="${state.donutDim}" data-slice-opt="${idx}" ${s.key === "Outros" ? "disabled" : ""}${tip}>
+  $("donutLegend").innerHTML = slices.map((s, idx) =>
+    `<button type="button" class="slice" data-slice-dim="${state.donutDim}" data-slice-opt="${idx}" ${s.key === "Outros" ? "disabled" : ""}>
       <i style="background:${s.color}"></i>
       <span>${esc(s.key)}</span>
       <b>${((s.value / total) * 100).toFixed(1)}%</b>
-    </button>`;
-  }).join("");
+    </button>`
+  ).join("");
+}
+
+function donutSliceTooltipHtml(slice) {
+  if (!slice || slice.key === "Outros") return "";
+  const showLojas = state.donutDim === "uf" || state.donutDim === "grupo" || state.donutDim === "loja";
+  const lojaLabel = slice.lojasN === 1 ? "1 loja" : `${numFmt.format(slice.lojasN || 0)} lojas`;
+  return showLojas
+    ? `<b>${esc(slice.key)}</b><div>${lojaLabel}</div><div>${moneyFmt.format(slice.value)}</div>`
+    : `<b>${esc(slice.key)}</b><div>${moneyFmt.format(slice.value)}</div>`;
+}
+
+function showDonutSliceTip(event, sliceBtn) {
+  if (!sliceBtn || sliceBtn.hasAttribute("disabled")) {
+    hideTip("donut");
+    return;
+  }
+  const opt = Number(sliceBtn.getAttribute("data-slice-opt"));
+  const slice = charts.donutSlices?.[opt];
+  const html = donutSliceTooltipHtml(slice);
+  if (!html) {
+    hideTip("donut");
+    return;
+  }
+  showTip(event.clientX, event.clientY, html, "donut");
 }
 
 function fillItemFilters(baseRows) {
@@ -1188,6 +1207,17 @@ function wire() {
   $("btnClear").addEventListener("click", clearFilters);
   $("btnSideClear").addEventListener("click", clearFilters);
   $("btnSideClearAll")?.addEventListener("click", clearFilters);
+
+  const donutLegend = $("donutLegend");
+  donutLegend.addEventListener("pointermove", (e) => {
+    const btn = e.target.closest(".slice[data-slice-opt]");
+    showDonutSliceTip(e, btn);
+  });
+  donutLegend.addEventListener("pointerleave", () => hideTip("donut"));
+  donutLegend.addEventListener("click", (e) => {
+    const btn = e.target.closest(".slice[data-slice-opt]");
+    if (btn) showDonutSliceTip(e, btn);
+  });
   $("chips").addEventListener("click", (e) => {
     const chipBtn = e.target.closest("[data-chip]");
     if (!chipBtn) return;
