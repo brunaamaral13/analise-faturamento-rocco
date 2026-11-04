@@ -284,10 +284,6 @@
                     <span>Loja</span>
                     <select id="itemLoja"></select>
                   </label>
-                  <div class="seg seg-sm" id="itemMetric" role="group" aria-label="Métrica dos itens">
-                    <button type="button" data-metric="fat" aria-pressed="true">Faturamento</button>
-                    <button type="button" data-metric="vol" aria-pressed="false">Volume</button>
-                  </div>
                 </div>
               </header>
               <div class="rank-scroll">
@@ -295,12 +291,12 @@
                   <thead>
                     <tr>
                       <th class="col-pos">#</th>
-                      <th>SKU</th>
-                      <th>Descrição</th>
-                      <th>Categoria</th>
-                      <th class="num">Volume</th>
-                      <th class="num">Faturamento</th>
-                      <th class="num">Parte</th>
+                      <th><button type="button" data-sort-item="sku">SKU</button></th>
+                      <th><button type="button" data-sort-item="desc">Descrição</button></th>
+                      <th><button type="button" data-sort-item="cat">Categoria</button></th>
+                      <th class="num"><button type="button" data-sort-item="vol">Volume</button></th>
+                      <th class="num"><button type="button" data-sort-item="fat">Faturamento</button></th>
+                      <th class="num"><button type="button" data-sort-item="parte">Parte</button></th>
                     </tr>
                   </thead>
                   <tbody id="itemsBody"></tbody>
@@ -323,6 +319,6 @@
   </div>
 
   <script src="brazil-map.js"></script>
-  <script src="app.js?v=20261104-10"></script>
+  <script src="app.js?v=20261104-11"></script>
 </body>
 </html>

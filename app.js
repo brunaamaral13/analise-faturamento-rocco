@@ -24,7 +24,7 @@ const state = {
   menuOptions: {},
   itemGrupo: "",
   itemLoja: "",
-  itemMetric: "fat",
+  sortItem: { key: "fat", dir: "desc" },
   sortGrupo: { key: "fat", dir: "desc" },
   sortLoja: { key: "fat", dir: "desc" }
 };
@@ -305,7 +305,7 @@ function aggregateBy(rows, field) {
   return [...map.values()];
 }
 
-function topItems(rows, limit = 30) {
+function topItems(rows, limit = 40) {
   const map = new Map();
   for (const r of rows) {
     const cur = map.get(r.sku) || { sku: r.sku, desc: r.desc, cat: r.cat, fat: 0, vol: 0 };
@@ -315,8 +315,20 @@ function topItems(rows, limit = 30) {
     if (!cur.cat && r.cat) cur.cat = r.cat;
     map.set(r.sku, cur);
   }
-  const metric = state.itemMetric === "vol" ? "vol" : "fat";
-  return [...map.values()].sort((a, b) => b[metric] - a[metric] || a.desc.localeCompare(b.desc, "pt-BR")).slice(0, limit);
+  const all = [...map.values()];
+  const totalFat = all.reduce((s, i) => s + i.fat, 0) || 1;
+  const items = all.map((it) => ({ ...it, parte: it.fat / totalFat }));
+  const key = state.sortItem.key;
+  const dir = state.sortItem.dir === "asc" ? 1 : -1;
+  items.sort((a, b) => {
+    const va = a[key];
+    const vb = b[key];
+    if (typeof va === "string" || typeof vb === "string") {
+      return dir * String(va || "").localeCompare(String(vb || ""), "pt-BR");
+    }
+    return dir * ((va || 0) - (vb || 0)) || String(a.desc || "").localeCompare(String(b.desc || ""), "pt-BR");
+  });
+  return items.slice(0, limit);
 }
 
 function colorOf(key) {
@@ -716,11 +728,17 @@ function renderItems(baseRows) {
   if (state.itemGrupo) rows = rows.filter((r) => r.grupo === state.itemGrupo);
   if (state.itemLoja) rows = rows.filter((r) => r.loja === state.itemLoja);
   const items = topItems(rows, 40);
-  const total = items.reduce((s, i) => s + i.fat, 0) || 1;
   const globalScope = scopeLabel();
   const localScope = [state.itemGrupo, state.itemLoja].filter(Boolean).join(" · ");
   const scope = localScope || globalScope || "recorte geral";
-  $("itemsSub").textContent = `Top títulos por ${state.itemMetric === "vol" ? "volume" : "faturamento"} · ${scope}`;
+  const sortLabel = ({ sku: "SKU", desc: "descrição", cat: "categoria", vol: "volume", fat: "faturamento", parte: "parte" })[state.sortItem.key] || "faturamento";
+  const dirLabel = state.sortItem.dir === "asc" ? "menor → maior" : "maior → menor";
+  $("itemsSub").textContent = `Top títulos · ordenado por ${sortLabel} (${dirLabel}) · ${scope}`;
+  document.querySelectorAll("[data-sort-item]").forEach((btn) => {
+    const active = btn.getAttribute("data-sort-item") === state.sortItem.key;
+    btn.classList.toggle("is-sort", active);
+    btn.setAttribute("aria-sort", active ? (state.sortItem.dir === "asc" ? "ascending" : "descending") : "none");
+  });
   $("itemsBody").innerHTML = items.length
     ? items.map((it, i) => `
       <tr>
@@ -730,7 +748,7 @@ function renderItems(baseRows) {
         <td>${esc(it.cat || "—")}</td>
         <td class="num">${numFmt.format(it.vol)}</td>
         <td class="num">${moneyFmt.format(it.fat)}</td>
-        <td class="num">${((it.fat / total) * 100).toFixed(1)}%</td>
+        <td class="num">${((it.parte || 0) * 100).toFixed(1)}%</td>
       </tr>`).join("")
     : `<tr><td colspan="7" class="empty-row">Sem itens neste recorte de cliente/grupo.</td></tr>`;
 }
@@ -1140,10 +1158,11 @@ function wire() {
       return;
     }
 
-    const metric = t.closest("#itemMetric [data-metric]");
-    if (metric) {
-      state.itemMetric = metric.getAttribute("data-metric");
-      document.querySelectorAll("#itemMetric [data-metric]").forEach((b) => b.setAttribute("aria-pressed", String(b === metric)));
+    const sortItem = t.closest("[data-sort-item]");
+    if (sortItem) {
+      const key = sortItem.getAttribute("data-sort-item");
+      if (state.sortItem.key === key) state.sortItem.dir = state.sortItem.dir === "desc" ? "asc" : "desc";
+      else state.sortItem = { key, dir: key === "sku" || key === "desc" || key === "cat" ? "asc" : "desc" };
       renderAll();
       return;
     }
