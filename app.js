@@ -795,32 +795,41 @@ function renderRankings(curRows, prevRows) {
     </tr>`).join("") || `<tr><td colspan="6" class="empty-row">Nenhuma loja neste recorte.</td></tr>`;
 }
 
-function ufHeatColor(fat, maxFat) {
-  if (!fat || !maxFat) return "#e7e9f0";
-  const t = Math.min(1, fat / maxFat);
-  if (t < 0.2) return "#f3c5c8";
-  if (t < 0.4) return "#e08a90";
-  if (t < 0.65) return "#c94a52";
-  return "#8e1214";
+function ufTrendColor(row) {
+  if (!row || !row.lojasN) return "#d5d8e0";
+  const pct = row.pct;
+  if (pct == null) return "#d5d8e0";
+  if (pct > 0.005) return "#0f7a5a";
+  if (pct < -0.005) return "#8e1214";
+  return "#c5cad6";
 }
 
-function buildUfStats(rows) {
+function buildUfStats(curRows, prevRows = []) {
   const map = new Map();
-  for (const r of rows) {
-    const cur = map.get(r.uf) || { key: r.uf, fat: 0, vol: 0, lojas: new Set() };
+  for (const r of curRows) {
+    const cur = map.get(r.uf) || { key: r.uf, fat: 0, vol: 0, prevFat: 0, lojas: new Set() };
     cur.fat += r.fat;
     cur.vol += r.vol;
     cur.lojas.add(r.cnpj || r.loja);
     map.set(r.uf, cur);
   }
-  const list = [...map.values()].map((u) => ({
-    key: u.key,
-    fat: u.fat,
-    vol: u.vol,
-    lojasN: u.lojas.size
-  })).sort((a, b) => b.fat - a.fat || a.key.localeCompare(b.key, "pt-BR"));
-  const maxFat = list.reduce((m, u) => Math.max(m, u.fat), 0);
-  return { list, maxFat, byKey: new Map(list.map((u) => [u.key, u])) };
+  for (const r of prevRows) {
+    const cur = map.get(r.uf) || { key: r.uf, fat: 0, vol: 0, prevFat: 0, lojas: new Set() };
+    cur.prevFat += r.fat;
+    map.set(r.uf, cur);
+  }
+  const list = [...map.values()]
+    .filter((u) => u.lojas.size > 0 || u.fat > 0)
+    .map((u) => ({
+      key: u.key,
+      fat: u.fat,
+      vol: u.vol,
+      prevFat: u.prevFat,
+      lojasN: u.lojas.size,
+      pct: pctChange(u.fat, u.prevFat)
+    }))
+    .sort((a, b) => b.fat - a.fat || a.key.localeCompare(b.key, "pt-BR"));
+  return { list, byKey: new Map(list.map((u) => [u.key, u])) };
 }
 
 function ensureBrazilMap() {
@@ -841,7 +850,7 @@ function paintBrazilMap() {
   const hot = charts.hoverUf;
   svg.querySelectorAll("path[data-uf]").forEach((path) => {
     const row = charts.ufByKey.get(path.dataset.uf);
-    path.setAttribute("fill", ufHeatColor(row ? row.fat : 0, charts.ufMaxFat || 0));
+    path.setAttribute("fill", ufTrendColor(row));
     path.classList.toggle("is-on", picked.has(path.dataset.uf));
     path.classList.toggle("is-hot", hot === path.dataset.uf);
   });
@@ -876,32 +885,37 @@ function showTip(x, y, html, kind) {
 
 function ufTooltipHtml(uf) {
   const row = charts.ufByKey.get(uf);
-  const lojasN = row ? row.lojasN : 0;
-  const fat = row ? row.fat : 0;
-  const lojaLabel = lojasN === 1 ? "1 loja" : `${numFmt.format(lojasN)} lojas`;
-  return `<b>${esc(uf)}</b><div>${lojaLabel}</div><div>${moneyFmt.format(fat)}</div>`;
+  if (!row || !row.lojasN) {
+    return `<b>${esc(uf)}</b><div>Sem cliente mapeado</div>`;
+  }
+  const lojaLabel = row.lojasN === 1 ? "1 loja" : `${numFmt.format(row.lojasN)} lojas`;
+  const varLabel = row.pct == null ? "—" : pctFmt.format(row.pct);
+  return `<b>${esc(uf)} · ${varLabel}</b><div>${lojaLabel}</div><div>${moneyFmt.format(row.fat)}</div>`;
 }
 
-function renderUfMap(curRows) {
-  const stats = buildUfStats(curRows);
+function renderUfMap(curRows, prevRows = []) {
+  const stats = buildUfStats(curRows, prevRows);
   charts.ufByKey = stats.byKey;
-  charts.ufMaxFat = stats.maxFat;
   const scope = scopeLabel();
   const picked = [...state.filters.uf];
   $("ufSub").textContent = scope
-    ? `Lojas por estado no recorte · ${scope}`
-    : "Passe o mouse no estado para ver quantas lojas venderam no recorte.";
+    ? `Variação por estado no recorte · ${scope}`
+    : "Verde = crescendo · Vermelho = caindo · Cinza = sem cliente mapeado.";
   $("ufCut").textContent = picked.length
     ? `Recorte: ${picked.sort().join(", ")}`
     : `Recorte: todos os estados · ${numFmt.format(stats.list.length)} UFs com venda`;
   paintBrazilMap();
   $("ufList").innerHTML = stats.list.length
-    ? stats.list.map((u) => `
+    ? stats.list.map((u) => {
+      const trend = u.pct == null ? "" : u.pct > 0.005 ? "is-up" : u.pct < -0.005 ? "is-down" : "";
+      const varTxt = u.pct == null ? "—" : pctFmt.format(u.pct);
+      return `
       <button type="button" class="uf-row ${state.filters.uf.has(u.key) ? "is-on" : ""} ${charts.hoverUf === u.key ? "is-hot" : ""}" data-uf-pick="${esc(u.key)}">
         <span class="uf-code">${esc(u.key)}</span>
-        <span class="uf-meta">${numFmt.format(u.lojasN)} ${u.lojasN === 1 ? "loja" : "lojas"}</span>
+        <span class="uf-meta">${numFmt.format(u.lojasN)} ${u.lojasN === 1 ? "loja" : "lojas"} · <em class="${trend}">${varTxt}</em></span>
         <b>${moneyFmt.format(u.fat)}</b>
-      </button>`).join("")
+      </button>`;
+    }).join("")
     : `<p class="menu-empty">Nenhuma UF neste recorte.</p>`;
 }
 
@@ -958,7 +972,7 @@ function renderAll() {
   renderKpis(curRows, prevRows);
   renderTrend(base);
   renderDonut(curRows);
-  renderUfMap(curRows);
+  renderUfMap(curRows, prevRows);
   renderItems(curRows);
   renderRankings(curRows, prevRows);
   renderSearch();

@@ -604,6 +604,9 @@ body.is-drag .drop { border-color: var(--red); transform: translateY(-2px); }
 .uf-row.is-on { background: #f8e8ea; }
 .uf-code { font-weight: 700; letter-spacing: .04em; }
 .uf-meta { color: var(--muted); font-size: 12.5px; }
+.uf-meta em { font-style: normal; font-weight: 700; }
+.uf-meta em.is-up { color: #0f7a5a; }
+.uf-meta em.is-down { color: #8e1214; }
 .uf-row b { font-variant-numeric: tabular-nums; font-size: 13px; }
 .uf-list b.is-down { color: var(--down); }
 .uf-list b.is-up { color: var(--green); }
