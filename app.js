@@ -618,8 +618,10 @@ function drawDonut(canvas, slices, total) {
   ctx.clearRect(0, 0, size, size);
   const cx = size / 2, cy = size / 2, r = size * 0.38, ri = size * 0.24;
   let a = -Math.PI / 2;
+  const hits = [];
   for (const s of slices) {
     const ang = total ? (s.value / total) * Math.PI * 2 : 0;
+    hits.push({ ...s, a0: a, a1: a + ang });
     ctx.beginPath();
     ctx.moveTo(cx + Math.cos(a) * ri, cy + Math.sin(a) * ri);
     ctx.arc(cx, cy, r, a, a + ang);
@@ -629,6 +631,7 @@ function drawDonut(canvas, slices, total) {
     ctx.fill();
     a += ang;
   }
+  canvas._donutHit = { cx, cy, r, ri, hits };
 }
 
 function renderKpis(curRows, prevRows) {
@@ -709,11 +712,13 @@ function renderDonut(rows) {
 
 function donutSliceTooltipHtml(slice) {
   if (!slice || slice.key === "Outros") return "";
-  const showLojas = state.donutDim === "uf" || state.donutDim === "grupo" || state.donutDim === "loja";
-  const lojaLabel = slice.lojasN === 1 ? "1 loja" : `${numFmt.format(slice.lojasN || 0)} lojas`;
-  return showLojas
-    ? `<b>${esc(slice.key)}</b><div>${lojaLabel}</div><div>${moneyFmt.format(slice.value)}</div>`
-    : `<b>${esc(slice.key)}</b><div>${moneyFmt.format(slice.value)}</div>`;
+  const withLojas = state.donutDim === "uf" || state.donutDim === "grupo" || state.donutDim === "loja";
+  if (!withLojas) {
+    return `<b>${esc(slice.key)}</b><div>${moneyFmt.format(slice.value)}</div>`;
+  }
+  const n = slice.lojasN || 0;
+  const lojaLabel = n === 1 ? "1 loja" : `${numFmt.format(n)} lojas`;
+  return `<b>${esc(slice.key)}</b><div>${lojaLabel}</div><div>${moneyFmt.format(slice.value)}</div>`;
 }
 
 function showDonutSliceTip(event, sliceBtn) {
@@ -729,6 +734,21 @@ function showDonutSliceTip(event, sliceBtn) {
     return;
   }
   showTip(event.clientX, event.clientY, html, "donut");
+}
+
+function hitDonutSlice(canvas, clientX, clientY) {
+  const hit = canvas._donutHit;
+  if (!hit) return null;
+  const rect = canvas.getBoundingClientRect();
+  const x = clientX - rect.left;
+  const y = clientY - rect.top;
+  const dx = x - hit.cx;
+  const dy = y - hit.cy;
+  const dist = Math.hypot(dx, dy);
+  if (dist < hit.ri || dist > hit.r) return null;
+  let ang = Math.atan2(dy, dx);
+  if (ang < -Math.PI / 2) ang += Math.PI * 2;
+  return hit.hits.find((s) => ang >= s.a0 && ang < s.a1) || null;
 }
 
 function fillItemFilters(baseRows) {
@@ -828,8 +848,9 @@ function renderRankings(curRows, prevRows) {
     : `${numFmt.format(lojas.length)} lojas no período`;
   state.menuOptions.pickGrupo = grupos.slice(0, 40).map((g) => g.key);
   state.menuOptions.pickLoja = lojas.slice(0, 50).map((l) => l.key);
-  $("grupoBody").innerHTML = grupos.slice(0, 40).map((g, i) => `
-    <tr data-pick-grupo="${i}">
+  charts.grupoTips = grupos.slice(0, 40);
+  $("grupoBody").innerHTML = charts.grupoTips.map((g, i) => `
+    <tr data-pick-grupo="${i}" data-grupo-tip="${i}">
       <td class="col-pos">${i + 1}</td>
       <td><button type="button" class="linkish" data-pick-grupo="${i}">${esc(g.key)}</button></td>
       <td class="num">${numFmt.format(g.lojasN)}</td>
@@ -1285,6 +1306,40 @@ function wire() {
     const btn = e.target.closest(".slice[data-slice-opt]");
     if (btn) showDonutSliceTip(e, btn);
   });
+
+  const donutCanvas = $("donut");
+  donutCanvas.addEventListener("pointermove", (e) => {
+    const slice = hitDonutSlice(donutCanvas, e.clientX, e.clientY);
+    const html = donutSliceTooltipHtml(slice);
+    if (!html) {
+      hideTip("donut");
+      return;
+    }
+    showTip(e.clientX, e.clientY, html, "donut");
+  });
+  donutCanvas.addEventListener("pointerleave", () => hideTip("donut"));
+
+  const grupoBody = $("grupoBody");
+  grupoBody.addEventListener("pointermove", (e) => {
+    const row = e.target.closest("[data-grupo-tip]");
+    if (!row) {
+      hideTip("grupo");
+      return;
+    }
+    const g = charts.grupoTips?.[Number(row.getAttribute("data-grupo-tip"))];
+    if (!g) {
+      hideTip("grupo");
+      return;
+    }
+    const lojaLabel = g.lojasN === 1 ? "1 loja" : `${numFmt.format(g.lojasN || 0)} lojas`;
+    showTip(
+      e.clientX,
+      e.clientY,
+      `<b>${esc(g.key)}</b><div>${lojaLabel}</div><div>${moneyFmt.format(g.fat)}</div>`,
+      "grupo"
+    );
+  });
+  grupoBody.addEventListener("pointerleave", () => hideTip("grupo"));
   $("chips").addEventListener("click", (e) => {
     const chipBtn = e.target.closest("[data-chip]");
     if (!chipBtn) return;
