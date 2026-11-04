@@ -838,7 +838,7 @@ function renderItems(baseRows) {
 
 function renderRankings(curRows, prevRows) {
   const prevGrupo = new Map(aggregateBy(prevRows, "grupo").map((a) => [a.key, a]));
-  const prevLoja = new Map(aggregateBy(prevRows, "loja").map((a) => [a.key, a.fat]));
+  const prevLoja = new Map(aggregateBy(prevRows, "loja").map((a) => [a.key, a]));
   let grupos = aggregateBy(curRows, "grupo").map((a) => {
     const prev = prevGrupo.get(a.key);
     return {
@@ -848,10 +848,14 @@ function renderRankings(curRows, prevRows) {
       pctVol: pctChange(a.vol, prev?.vol || 0)
     };
   });
-  let lojas = aggregateBy(curRows, "loja").map((a) => ({
-    ...a,
-    pct: pctChange(a.fat, prevLoja.get(a.key) || 0)
-  }));
+  let lojas = aggregateBy(curRows, "loja").map((a) => {
+    const prev = prevLoja.get(a.key);
+    return {
+      ...a,
+      pct: pctChange(a.fat, prev?.fat || 0),
+      pctVol: pctChange(a.vol, prev?.vol || 0)
+    };
+  });
 
   const sortVal = (row, key) => {
     if (key === "name") return row.key;
@@ -902,7 +906,9 @@ function renderRankings(curRows, prevRows) {
       <td class="col-vend">${esc(l.vend)}</td>
       <td class="num">${moneyFmt.format(l.fat)}</td>
       <td class="num ${l.pct != null && l.pct < 0 ? "is-neg" : "is-pos"}">${l.pct == null ? "—" : pctFmt.format(l.pct)}</td>
-    </tr>`).join("") || `<tr><td colspan="6" class="empty-row">Nenhuma loja neste recorte.</td></tr>`;
+      <td class="num">${numFmt.format(l.vol)}</td>
+      <td class="num ${l.pctVol != null && l.pctVol < 0 ? "is-neg" : "is-pos"}">${l.pctVol == null ? "—" : pctFmt.format(l.pctVol)}</td>
+    </tr>`).join("") || `<tr><td colspan="8" class="empty-row">Nenhuma loja neste recorte.</td></tr>`;
 }
 
 function ufTrendColor(row) {
