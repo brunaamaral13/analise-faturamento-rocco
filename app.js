@@ -24,6 +24,7 @@ const state = {
   menuOptions: {},
   itemGrupo: "",
   itemLoja: "",
+  itemCategoria: "",
   sortItem: { key: "fat", dir: "desc" },
   sortGrupo: { key: "fat", dir: "desc" },
   sortLoja: { key: "fat", dir: "desc" }
@@ -214,6 +215,7 @@ function scopeLabel() {
 function syncItemFiltersFromGlobal() {
   const grupos = state.filters.grupo;
   const lojas = state.filters.loja;
+  const cats = state.filters.categoria;
   if (grupos.size === 1) state.itemGrupo = [...grupos][0];
   else if (state.itemGrupo && grupos.size && !grupos.has(state.itemGrupo)) {
     state.itemGrupo = "";
@@ -222,6 +224,10 @@ function syncItemFiltersFromGlobal() {
   if (lojas.size === 1) state.itemLoja = [...lojas][0];
   else if (state.itemLoja && lojas.size && !lojas.has(state.itemLoja)) {
     state.itemLoja = "";
+  }
+  if (cats.size === 1) state.itemCategoria = [...cats][0];
+  else if (state.itemCategoria && cats.size && !cats.has(state.itemCategoria)) {
+    state.itemCategoria = "";
   }
 }
 
@@ -240,8 +246,13 @@ function pruneIncompatibleFilters() {
   }
   const beforeGrupo = state.itemGrupo;
   const beforeLoja = state.itemLoja;
+  const beforeCat = state.itemCategoria;
   syncItemFiltersFromGlobal();
-  if (state.itemGrupo !== beforeGrupo || state.itemLoja !== beforeLoja) changed = true;
+  if (
+    state.itemGrupo !== beforeGrupo
+    || state.itemLoja !== beforeLoja
+    || state.itemCategoria !== beforeCat
+  ) changed = true;
   return changed;
 }
 
@@ -459,6 +470,7 @@ function removeChipFilter(chip) {
       state.itemLoja = "";
     }
     if (chip.dim === "loja" && state.itemLoja === chip.value) state.itemLoja = "";
+    if (chip.dim === "categoria" && state.itemCategoria === chip.value) state.itemCategoria = "";
   }
   pruneIncompatibleFilters();
   renderAll();
@@ -474,6 +486,7 @@ function clearDimFilter(dimKey) {
       state.itemLoja = "";
     }
     if (dimKey === "loja") state.itemLoja = "";
+    if (dimKey === "categoria") state.itemCategoria = "";
   }
   pruneIncompatibleFilters();
   renderAll();
@@ -763,17 +776,32 @@ function fillItemFilters(baseRows) {
       })
       .map((r) => r.loja)
   )].sort((a, b) => a.localeCompare(b, "pt-BR"));
+  const cats = [...new Set(
+    baseRows
+      .filter((r) => {
+        if (state.itemGrupo && r.grupo !== state.itemGrupo) return false;
+        if (state.itemLoja && r.loja !== state.itemLoja) return false;
+        if (state.filters.categoria.size && !state.filters.categoria.has(r.cat)) return false;
+        return true;
+      })
+      .map((r) => r.cat)
+  )].sort((a, b) => a.localeCompare(b, "pt-BR"));
 
   const gSel = $("itemGrupo");
   const lSel = $("itemLoja");
+  const cSel = $("itemCategoria");
   if (state.itemGrupo && !grupos.includes(state.itemGrupo)) state.itemGrupo = "";
   if (state.itemLoja && !lojas.includes(state.itemLoja)) state.itemLoja = "";
+  if (state.itemCategoria && !cats.includes(state.itemCategoria)) state.itemCategoria = "";
   const gVal = state.itemGrupo;
   const lVal = state.itemLoja;
+  const cVal = state.itemCategoria;
   state.menuOptions.itemGrupo = grupos;
   state.menuOptions.itemLoja = lojas;
+  state.menuOptions.itemCategoria = cats;
   gSel.innerHTML = `<option value="">Todos os grupos</option>` + grupos.map((g, i) => `<option value="${i}" ${g === gVal ? "selected" : ""}>${esc(g)}</option>`).join("");
   lSel.innerHTML = `<option value="">Todas as lojas</option>` + lojas.map((l, i) => `<option value="${i}" ${l === lVal ? "selected" : ""}>${esc(l)}</option>`).join("");
+  cSel.innerHTML = `<option value="">Todas as categorias</option>` + cats.map((c, i) => `<option value="${i}" ${c === cVal ? "selected" : ""}>${esc(c)}</option>`).join("");
 }
 
 function renderItems(baseRows) {
@@ -781,9 +809,10 @@ function renderItems(baseRows) {
   let rows = baseRows;
   if (state.itemGrupo) rows = rows.filter((r) => r.grupo === state.itemGrupo);
   if (state.itemLoja) rows = rows.filter((r) => r.loja === state.itemLoja);
+  if (state.itemCategoria) rows = rows.filter((r) => r.cat === state.itemCategoria);
   const items = topItems(rows, 40);
   const globalScope = scopeLabel();
-  const localScope = [state.itemGrupo, state.itemLoja].filter(Boolean).join(" · ");
+  const localScope = [state.itemGrupo, state.itemLoja, state.itemCategoria].filter(Boolean).join(" · ");
   const scope = localScope || globalScope || "recorte geral";
   const sortLabel = ({ sku: "SKU", desc: "descrição", cat: "categoria", vol: "volume", fat: "faturamento", parte: "parte" })[state.sortItem.key] || "faturamento";
   const dirLabel = state.sortItem.dir === "asc" ? "menor → maior" : "maior → menor";
@@ -1066,6 +1095,7 @@ async function ingestText(text, fileName) {
     state.periodMonth = null;
     state.itemGrupo = "";
     state.itemLoja = "";
+    state.itemCategoria = "";
     $("empty").hidden = true;
     $("dash").hidden = false;
     $("q").disabled = false;
@@ -1103,6 +1133,7 @@ function toggleFilter(dim, value, on) {
     state.itemLoja = "";
   }
   if (dim === "loja" && !on && state.itemLoja === value) state.itemLoja = "";
+  if (dim === "categoria" && !on && state.itemCategoria === value) state.itemCategoria = "";
   pruneIncompatibleFilters();
   renderAll();
 }
@@ -1112,6 +1143,7 @@ function clearFilters() {
   state.periodMonth = null;
   state.itemGrupo = "";
   state.itemLoja = "";
+  state.itemCategoria = "";
   state.search = "";
   $("q").value = "";
   renderAll();
@@ -1358,6 +1390,11 @@ function wire() {
   $("itemLoja").addEventListener("change", (e) => {
     const idx = e.target.value;
     state.itemLoja = idx === "" ? "" : (state.menuOptions.itemLoja?.[Number(idx)] || "");
+    renderAll();
+  });
+  $("itemCategoria").addEventListener("change", (e) => {
+    const idx = e.target.value;
+    state.itemCategoria = idx === "" ? "" : (state.menuOptions.itemCategoria?.[Number(idx)] || "");
     renderAll();
   });
 
