@@ -18,7 +18,7 @@ const state = {
   filters: { vendedor: new Set(), grupo: new Set(), loja: new Set(), uf: new Set(), categoria: new Set() },
   analysisYear: null,
   periodMonth: null,
-  donutDim: "grupo",
+  donutDim: "loja",
   search: "",
   openMenu: null,
   menuOptions: {},
