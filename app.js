@@ -395,12 +395,12 @@ function renderFilterBar() {
         }).join(" · ")}`
       : "";
     const listHtml = opts.length
-      ? opts.map(([value, lojasN, fat], idx) => {
+      ? opts.map(([value, lojasN], idx) => {
           const on = set.has(value);
           const meta = dim.key === "vendedor"
-            ? `${numFmt.format(lojasN)} ${lojasN === 1 ? "loja" : "lojas"}`
-            : moneyFmt.format(fat);
-          return `<label class="menu-item"><input type="checkbox" data-dim="${dim.key}" data-opt="${idx}" ${on ? "checked" : ""}><span title="${esc(value)}">${esc(value)}</span><small>${meta}</small></label>`;
+            ? `<small>${numFmt.format(lojasN)} ${lojasN === 1 ? "loja" : "lojas"}</small>`
+            : "";
+          return `<label class="menu-item"><input type="checkbox" data-dim="${dim.key}" data-opt="${idx}" ${on ? "checked" : ""}><span title="${esc(value)}">${esc(value)}</span>${meta}</label>`;
         }).join("")
       : `<p class="menu-empty">Nenhuma opção neste recorte.</p>`;
     return `
