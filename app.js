@@ -26,6 +26,9 @@ const state = {
   periodMonth: null,
   donutDim: "loja",
   search: "",
+  isbnQuery: "",
+  books: [],
+  stores: [],
   sku: "",
   skuDesc: "",
   openMenu: null,
@@ -293,7 +296,7 @@ function filteredRows(except = null) {
 }
 
 function hasActiveFilters() {
-  if (state.periodMonth != null || state.search.trim() || state.sku) return true;
+  if (state.periodMonth != null || state.search.trim() || state.isbnQuery.trim() || state.sku) return true;
   return DIMS.some((d) => state.filters[d.key].size);
 }
 
@@ -1071,59 +1074,141 @@ function toggleUf(uf) {
   renderAll();
 }
 
-function renderSearch() {
+function hitsFilter(values, filter) {
+  if (!filter || !filter.size) return true;
+  for (const v of filter) if (values.has(v)) return true;
+  return false;
+}
+
+function buildLookups(rows) {
+  const books = new Map();
+  const stores = new Map();
+  for (const r of rows) {
+    let book = books.get(r.sku);
+    if (!book) {
+      book = { sku: r.sku, desc: r.desc || "", cat: r.cat || "", digits: digitsOf(r.sku), lojas: new Set(), vends: new Set(), grupos: new Set(), ufs: new Set(), cats: new Set() };
+      books.set(r.sku, book);
+    } else if (!book.desc && r.desc) book.desc = r.desc;
+    book.lojas.add(r.loja);
+    book.vends.add(r.vend);
+    book.grupos.add(r.grupo);
+    book.ufs.add(r.uf);
+    book.cats.add(r.cat);
+
+    let store = stores.get(r.loja);
+    if (!store) {
+      const cnpjDigits = digitsOf(r.cnpj || r.loja);
+      store = { loja: r.loja, grupo: r.grupo, vend: r.vend, cnpjDigits, lojaNorm: norm(r.loja), vends: new Set(), grupos: new Set(), ufs: new Set(), cats: new Set(), skus: new Set() };
+      stores.set(r.loja, store);
+    }
+    store.vends.add(r.vend);
+    store.grupos.add(r.grupo);
+    store.ufs.add(r.uf);
+    store.cats.add(r.cat);
+    store.skus.add(r.sku);
+    if (r.cnpj) store.cnpjDigits = digitsOf(r.cnpj);
+  }
+  state.books = [...books.values()];
+  state.stores = [...stores.values()];
+}
+
+function storeInScope(store) {
+  const f = state.filters;
+  if (!hitsFilter(store.vends, f.vendedor)) return false;
+  if (!hitsFilter(store.grupos, f.grupo)) return false;
+  if (!hitsFilter(store.ufs, f.uf)) return false;
+  if (!hitsFilter(store.cats, f.categoria)) return false;
+  if (state.sku && !store.skus.has(state.sku)) return false;
+  return true;
+}
+
+function bookInScope(book) {
+  const f = state.filters;
+  if (!hitsFilter(book.vends, f.vendedor)) return false;
+  if (!hitsFilter(book.grupos, f.grupo)) return false;
+  if (!hitsFilter(book.lojas, f.loja)) return false;
+  if (!hitsFilter(book.ufs, f.uf)) return false;
+  if (!hitsFilter(book.cats, f.categoria)) return false;
+  return true;
+}
+
+function renderStoreSearch() {
   const box = $("searchHit");
+  const input = $("q");
   const q = state.search.trim();
-  if (!q || !state.meta) { box.hidden = true; box.innerHTML = ""; $("q").setAttribute("aria-expanded", "false"); return; }
+  if (!q || !state.meta) { box.hidden = true; box.innerHTML = ""; input.setAttribute("aria-expanded", "false"); return; }
   const nq = norm(q);
   const qDigits = digitsOf(q);
   const digitQuery = qDigits.length >= 4;
   const textQuery = /[a-z]/.test(nq);
-  const books = [];
-  const seenBook = new Set();
-  const lojas = [];
-  const seenLoja = new Set();
-  for (const r of filteredRows("sku")) {
-    const skuDigits = digitsOf(r.sku);
-    const isbnHit = digitQuery && (skuDigits === qDigits || skuDigits.includes(qDigits));
-    const titleHit = norm(r.desc).includes(nq) || norm(r.sku).includes(nq);
-    if ((isbnHit || titleHit) && !seenBook.has(r.sku) && books.length < 24) {
-      seenBook.add(r.sku);
-      const exact = qDigits && skuDigits === qDigits ? 0 : qDigits && skuDigits.startsWith(qDigits) ? 1 : isbnHit ? 2 : 3;
-      books.push({ sku: r.sku, desc: r.desc, cat: r.cat, exact });
-    }
-    const lojaHit = norm(r.loja).includes(nq) || norm(r.grupo).includes(nq);
-    if (lojaHit && !seenLoja.has(r.loja) && lojas.length < 8) {
-      seenLoja.add(r.loja);
-      lojas.push(r);
-    }
-    if (!textQuery && books.some((b) => b.exact === 0)) break;
-    if (books.length >= 24 && (!textQuery || lojas.length >= 8)) break;
+  const hits = [];
+  for (const store of state.stores) {
+    if (!storeInScope(store)) continue;
+    const nameHit = textQuery && store.lojaNorm.includes(nq);
+    const cnpjHit = digitQuery && store.cnpjDigits.includes(qDigits);
+    if (!nameHit && !cnpjHit) continue;
+    const rank = cnpjHit && store.cnpjDigits === qDigits ? 0 : nameHit && store.lojaNorm.startsWith(nq) ? 1 : cnpjHit && store.cnpjDigits.startsWith(qDigits) ? 2 : 3;
+    hits.push({ store, rank });
   }
-  books.sort((a, b) => a.exact - b.exact || String(a.desc || "").localeCompare(String(b.desc || ""), "pt-BR"));
-  const bookHits = books.slice(0, 8);
+  hits.sort((a, b) => a.rank - b.rank || a.store.loja.localeCompare(b.store.loja, "pt-BR"));
+  const top = hits.slice(0, 8).map((h) => h.store);
   box.hidden = false;
-  $("q").setAttribute("aria-expanded", "true");
-  state.menuOptions.searchIsbn = bookHits;
-  state.menuOptions.searchLoja = lojas.map((r) => r.loja);
-  const parts = [];
-  if (bookHits.length) {
-    parts.push(`<p class="search-label">Títulos</p>`);
-    parts.push(bookHits.map((r, i) => `<button type="button" data-search-isbn="${i}"><b>${esc(r.desc || "Sem título")}</b><small>ISBN ${esc(r.sku)}${r.cat ? ` · ${esc(r.cat)}` : ""}</small></button>`).join(""));
+  input.setAttribute("aria-expanded", "true");
+  state.menuOptions.searchLoja = top.map((r) => r.loja);
+  box.innerHTML = top.length
+    ? top.map((r, i) => `<button type="button" data-search-loja="${i}"><b>${esc(r.loja)}</b><small>${esc(r.grupo)} · ${esc(r.vend)}</small></button>`).join("")
+    : `<p class="search-more">Nenhuma loja ou CNPJ para “${esc(q)}”.</p>`;
+}
+
+function renderIsbnSearch() {
+  const box = $("isbnHit");
+  const input = $("qIsbn");
+  const q = state.isbnQuery.trim();
+  const qDigits = digitsOf(q);
+  if (!q || !state.meta) { box.hidden = true; box.innerHTML = ""; input.setAttribute("aria-expanded", "false"); return; }
+  if (qDigits.length < 4) {
+    box.hidden = false;
+    input.setAttribute("aria-expanded", "true");
+    state.menuOptions.searchIsbn = [];
+    box.innerHTML = `<p class="search-more">Digite ao menos 4 números do ISBN.</p>`;
+    return;
   }
-  if (lojas.length) {
-    parts.push(`<p class="search-label">Lojas</p>`);
-    parts.push(lojas.map((r, i) => `<button type="button" data-search-loja="${i}"><b>${esc(r.loja)}</b><small>${esc(r.grupo)} · ${esc(r.vend)}</small></button>`).join(""));
+  const hits = [];
+  for (const book of state.books) {
+    if (!book.digits.includes(qDigits) || !bookInScope(book)) continue;
+    const exact = book.digits === qDigits ? 0 : book.digits.startsWith(qDigits) ? 1 : 2;
+    hits.push({ book, exact });
   }
-  box.innerHTML = parts.length
-    ? parts.join("")
-    : `<p class="search-more">Nenhum resultado para “${esc(q)}”.</p>`;
+  hits.sort((a, b) => a.exact - b.exact || String(a.book.desc || "").localeCompare(String(b.book.desc || ""), "pt-BR"));
+  const top = hits.slice(0, 8).map((h) => h.book);
+  box.hidden = false;
+  input.setAttribute("aria-expanded", "true");
+  state.menuOptions.searchIsbn = top;
+  box.innerHTML = top.length
+    ? top.map((r, i) => `<button type="button" data-search-isbn="${i}"><b>${esc(r.desc || "Sem título")}</b><small>ISBN ${esc(r.sku)}${r.cat ? ` · ${esc(r.cat)}` : ""}</small></button>`).join("")
+    : `<p class="search-more">Nenhum ISBN para “${esc(q)}”.</p>`;
+}
+
+function renderSearch() {
+  renderStoreSearch();
+  renderIsbnSearch();
 }
 
 function applyIsbn(book) {
   if (!book?.sku) return;
   state.sku = book.sku;
   state.skuDesc = book.desc || "";
+  state.isbnQuery = "";
+  $("qIsbn").value = "";
+  pruneIncompatibleFilters();
+  renderAll();
+}
+
+function applyLoja(loja) {
+  if (!loja) return;
+  state.filters.loja.clear();
+  state.filters.loja.add(loja);
+  state.itemLoja = loja;
   state.search = "";
   $("q").value = "";
   pruneIncompatibleFilters();
@@ -1161,6 +1246,7 @@ async function ingestText(text, fileName) {
     const parsed = parseCsv(text);
     state.rows = parsed.rows;
     state.meta = parsed.meta;
+    buildLookups(state.rows);
     state.analysisYear = parsed.analysisYear;
     state.fileName = fileName || "sell-out.csv";
     state.menuOptions = {};
@@ -1168,12 +1254,15 @@ async function ingestText(text, fileName) {
     state.periodMonth = null;
     state.sku = "";
     state.skuDesc = "";
+    state.isbnQuery = "";
     state.itemGrupo = "";
     state.itemLoja = "";
     state.itemCategoria = "";
     $("empty").hidden = true;
     $("dash").hidden = false;
     $("q").disabled = false;
+    $("qIsbn").disabled = false;
+    $("qIsbn").value = "";
     $("fileLabel").textContent = "Trocar CSV";
     $("fileMeta").textContent = state.fileName;
     $("error").hidden = true;
@@ -1287,9 +1376,11 @@ function clearFilters() {
   state.itemLoja = "";
   state.itemCategoria = "";
   state.search = "";
+  state.isbnQuery = "";
   state.sku = "";
   state.skuDesc = "";
   $("q").value = "";
+  $("qIsbn").value = "";
   renderAll();
 }
 
@@ -1454,16 +1545,7 @@ function wire() {
 
     const searchLoja = t.closest("[data-search-loja]");
     if (searchLoja) {
-      const l = state.menuOptions.searchLoja?.[Number(searchLoja.getAttribute("data-search-loja"))];
-      if (l) {
-        state.filters.loja.clear();
-        state.filters.loja.add(l);
-        state.itemLoja = l;
-        state.search = "";
-        $("q").value = "";
-        pruneIncompatibleFilters();
-        renderAll();
-      }
+      applyLoja(state.menuOptions.searchLoja?.[Number(searchLoja.getAttribute("data-search-loja"))]);
       return;
     }
 
@@ -1604,31 +1686,33 @@ function wire() {
   });
   $("q").addEventListener("input", (e) => {
     state.search = e.target.value;
-    renderSearch();
+    renderStoreSearch();
   });
   $("q").addEventListener("keydown", (e) => {
     if (e.key === "Escape") {
       state.search = "";
       $("q").value = "";
-      renderSearch();
+      renderStoreSearch();
       return;
     }
     if (e.key !== "Enter") return;
     e.preventDefault();
-    const book = state.menuOptions.searchIsbn?.[0];
-    if (book) {
-      applyIsbn(book);
+    applyLoja(state.menuOptions.searchLoja?.[0]);
+  });
+  $("qIsbn").addEventListener("input", (e) => {
+    state.isbnQuery = e.target.value;
+    renderIsbnSearch();
+  });
+  $("qIsbn").addEventListener("keydown", (e) => {
+    if (e.key === "Escape") {
+      state.isbnQuery = "";
+      $("qIsbn").value = "";
+      renderIsbnSearch();
       return;
     }
-    const loja = state.menuOptions.searchLoja?.[0];
-    if (!loja) return;
-    state.filters.loja.clear();
-    state.filters.loja.add(loja);
-    state.itemLoja = loja;
-    state.search = "";
-    $("q").value = "";
-    pruneIncompatibleFilters();
-    renderAll();
+    if (e.key !== "Enter") return;
+    e.preventDefault();
+    applyIsbn(state.menuOptions.searchIsbn?.[0]);
   });
 
   const trend = $("trend");
