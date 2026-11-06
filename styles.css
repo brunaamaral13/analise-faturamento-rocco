@@ -279,6 +279,14 @@ h1, h2, p { margin: 0; }
 .search-hit b { font-size: 14px; font-weight: 650; line-height: 1.25; }
 .search-hit small { color: var(--muted); font-size: 12px; }
 .search-hit .search-more { color: var(--muted); font-size: 12px; padding: 6px 10px 8px; }
+.search-hit .search-label {
+  margin: 6px 10px 2px;
+  font-size: 11px;
+  font-weight: 650;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
 
 .empty { display: grid; place-items: center; min-height: 62vh; }
 .drop {
