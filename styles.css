@@ -433,7 +433,10 @@ body.is-drag .drop { border-color: var(--red); transform: translateY(-2px); }
   box-shadow: 0 1px 0 rgba(28,34,48,.02);
   max-width: 240px;
 }
-.menu.is-on .menu-btn { border-color: #f0c2c6; background: #fff7f7; }
+.menu.is-on .menu-btn,
+.novos-btn[aria-pressed="true"] { border-color: #f0c2c6; background: #fff7f7; }
+.novos-btn { max-width: none; }
+.novos-btn .menu-v { max-width: none; }
 .menu-k { color: var(--muted); font-size: 12px; }
 .menu-v {
   font-weight: 650; font-size: 14px;
@@ -519,7 +522,7 @@ body.is-drag .drop { border-color: var(--red); transform: translateY(-2px); }
   color: #fff;
 }
 
-.kpis { display: grid; grid-template-columns: repeat(4, 1fr); gap: 20px; margin-top: 8px; }
+.kpis { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 14px; margin-top: 8px; }
 .insights { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 20px; margin-top: 10px; }
 .kpi {
   position: relative; overflow: hidden;
@@ -562,6 +565,20 @@ body.is-drag .drop { border-color: var(--red); transform: translateY(-2px); }
 .kpi.is-flat { background: #5c6b7a; color: #fff; }
 .kpi-navy { background: var(--navy); color: #fff; }
 .kpi-purple { background: var(--purple); color: #fff; }
+button.kpi {
+  appearance: none;
+  border: 0;
+  width: 100%;
+  text-align: left;
+  font: inherit;
+}
+button.kpi:not([aria-disabled="true"]) { cursor: pointer; }
+button.kpi:not([aria-disabled="true"]):hover { transform: translateY(-2px); }
+button.kpi[aria-disabled="true"] { cursor: default; }
+button.kpi[aria-pressed="true"] {
+  box-shadow: 0 0 0 3px #fff, 0 0 0 6px var(--ink);
+}
+#lojaCard.is-paradas { box-shadow: 0 0 0 2px var(--down), var(--shadow); }
 .dash.play .kpi::after, #dash.play .kpi::after {
   content: "";
   position: absolute; inset: 0;
@@ -949,6 +966,7 @@ body.is-drag .drop { border-color: var(--red); transform: translateY(-2px); }
 #dash.play .kpi:nth-child(2), #dash.play .insight:nth-child(2) { animation-delay: .05s; }
 #dash.play .kpi:nth-child(3), #dash.play .insight:nth-child(3) { animation-delay: .1s; }
 #dash.play .kpi:nth-child(4), #dash.play .insight:nth-child(4) { animation-delay: .15s; }
+#dash.play .kpi:nth-child(5) { animation-delay: .2s; }
 #dash.play .grid-mid { animation: rise .6s .12s both; }
 #dash.play .grid-bot { animation: rise .6s .18s both; }
 

@@ -31,6 +31,10 @@ const state = {
   stores: [],
   sku: "",
   skuDesc: "",
+  novos: false,
+  paradas: false,
+  newStoreIds: new Set(),
+  newSince: null,
   openMenu: null,
   menuOptions: {},
   itemGrupo: "",
@@ -221,6 +225,7 @@ function scopeLabel() {
   }
   if (state.periodMonth != null) parts.push(`Mês: ${MONTHS[state.periodMonth]}`);
   if (state.sku) parts.push(state.skuDesc ? `ISBN: ${state.sku} · ${state.skuDesc}` : `ISBN: ${state.sku}`);
+  if (state.novos) parts.push(`Novos na base: desde ${monthKeyLabel(state.newSince)}`);
   return parts.join(" · ");
 }
 
@@ -282,9 +287,33 @@ function digitsOf(s) {
   return String(s || "").replace(/\D/g, "");
 }
 
+function storeId(r) {
+  return (r.cnpj || r.loja || "").trim() || r.loja;
+}
+
+function monthKeyLabel(key) {
+  if (key == null || !Number.isFinite(key)) return "";
+  return `${MONTHS_SHORT[((key % 12) + 12) % 12]}/${Math.floor(key / 12)}`;
+}
+
+function buildNewStores(rows, maxKey) {
+  const first = new Map();
+  for (const r of rows) {
+    const id = storeId(r);
+    const cur = first.get(id);
+    if (cur == null || r.key < cur) first.set(id, r.key);
+  }
+  const start = maxKey - 11;
+  const ids = new Set();
+  for (const [id, key] of first) if (key >= start) ids.add(id);
+  state.newStoreIds = ids;
+  state.newSince = start;
+}
+
 function filteredRows(except = null) {
   const f = state.filters;
   return state.rows.filter((r) => {
+    if (state.novos && except !== "novos" && !state.newStoreIds.has(storeId(r))) return false;
     if (except !== "sku" && state.sku && r.sku !== state.sku) return false;
     for (const dim of DIMS) {
       if (except === dim.key) continue;
@@ -296,7 +325,7 @@ function filteredRows(except = null) {
 }
 
 function hasActiveFilters() {
-  if (state.periodMonth != null || state.search.trim() || state.isbnQuery.trim() || state.sku) return true;
+  if (state.periodMonth != null || state.search.trim() || state.isbnQuery.trim() || state.sku || state.novos || state.paradas) return true;
   return DIMS.some((d) => state.filters[d.key].size);
 }
 
@@ -308,6 +337,8 @@ function activeFilterGroups() {
   }
   if (state.periodMonth != null) groups.push({ key: "mes", label: "Mês", values: [MONTHS[state.periodMonth]] });
   if (state.sku) groups.push({ key: "sku", label: "ISBN", values: [state.skuDesc ? `${state.sku} · ${state.skuDesc}` : state.sku] });
+  if (state.novos) groups.push({ key: "novos", label: "Novos na base", values: [`desde ${monthKeyLabel(state.newSince)}`] });
+  if (state.paradas) groups.push({ key: "paradas", label: "Lojas paradas", values: ["zeraram neste período"] });
   return groups;
 }
 
@@ -326,6 +357,44 @@ function sumRows(rows) {
 function pctChange(cur, prev) {
   if (!prev) return cur ? 1 : null;
   return (cur - prev) / prev;
+}
+
+function storeActivity(rows) {
+  const map = new Map();
+  for (const r of rows) {
+    const id = storeId(r);
+    let cur = map.get(id);
+    if (!cur) {
+      cur = { id, key: r.loja, grupo: r.grupo, vend: r.vend, fat: 0, vol: 0, lastKey: r.key };
+      map.set(id, cur);
+    }
+    cur.fat += r.fat;
+    cur.vol += r.vol;
+    if (r.key >= cur.lastKey) {
+      cur.lastKey = r.key;
+      cur.key = r.loja;
+      cur.grupo = r.grupo;
+      cur.vend = r.vend;
+    }
+  }
+  return map;
+}
+
+function stoppedStores(curRows, prevRows) {
+  const cur = storeActivity(curRows);
+  const prev = storeActivity(prevRows);
+  const list = [];
+  let fat = 0;
+  let hadPrev = false;
+  for (const row of prev.values()) {
+    if (!(row.fat > 0 || row.vol > 0)) continue;
+    hadPrev = true;
+    const now = cur.get(row.id);
+    if (now && (now.fat > 0 || now.vol > 0)) continue;
+    list.push(row);
+    fat += row.fat;
+  }
+  return { n: list.length, fat, hadPrev, list };
 }
 
 function aggregateBy(rows, field) {
@@ -447,7 +516,11 @@ function renderFilterBar() {
           <div class="menu-list">${listHtml}</div>
         </div>
       </div>`;
-  }).join("");
+  }).join("") + `
+    <button type="button" class="menu-btn novos-btn" data-toggle-novos aria-pressed="${state.novos ? "true" : "false"}" title="Lojas sem venda antes dos últimos 12 meses da base">
+      <span class="menu-k">Novos na base</span>
+      <span class="menu-v">${state.novos ? `desde ${esc(monthKeyLabel(state.newSince))}` : "Todos"}</span>
+    </button>`;
   $("btnClear").hidden = !hasActiveFilters();
   const hint = document.querySelector("#sec-visao .hint");
   if (hint) {
@@ -472,6 +545,12 @@ function renderChips() {
   if (state.sku) {
     chips.push({ kind: "sku", label: state.skuDesc ? `ISBN: ${state.sku} · ${state.skuDesc}` : `ISBN: ${state.sku}` });
   }
+  if (state.novos) {
+    chips.push({ kind: "novos", label: `Novos na base: desde ${monthKeyLabel(state.newSince)}` });
+  }
+  if (state.paradas) {
+    chips.push({ kind: "paradas", label: "Lojas paradas" });
+  }
   el._chips = chips;
   if (!chips.length) { el.hidden = true; el.innerHTML = ""; return; }
   el.hidden = false;
@@ -487,6 +566,10 @@ function removeChipFilter(chip) {
   } else if (chip.kind === "sku") {
     state.sku = "";
     state.skuDesc = "";
+  } else if (chip.kind === "novos") {
+    state.novos = false;
+  } else if (chip.kind === "paradas") {
+    state.paradas = false;
   } else if (chip.kind === "dim" && state.filters[chip.dim]) {
     state.filters[chip.dim].delete(chip.value);
     if (chip.dim === "grupo" && state.itemGrupo === chip.value) {
@@ -506,6 +589,10 @@ function clearDimFilter(dimKey) {
   } else if (dimKey === "sku") {
     state.sku = "";
     state.skuDesc = "";
+  } else if (dimKey === "novos") {
+    state.novos = false;
+  } else if (dimKey === "paradas") {
+    state.paradas = false;
   } else if (state.filters[dimKey]) {
     state.filters[dimKey].clear();
     if (dimKey === "grupo") {
@@ -674,7 +761,7 @@ function drawDonut(canvas, slices, total) {
   canvas._donutHit = { cx, cy, r, ri, hits };
 }
 
-function renderKpis(curRows, prevRows) {
+function renderKpis(curRows, prevRows, stopped) {
   const cur = sumRows(curRows);
   const prev = sumRows(prevRows);
   const win = windowFor(state.analysisYear);
@@ -696,6 +783,28 @@ function renderKpis(curRows, prevRows) {
   $("kpiGrupos").textContent = numFmt.format(cur.grupos);
   $("kpiSkus").textContent = numFmt.format(cur.skus);
   $("kpiCupons").textContent = numFmt.format(cur.cup);
+
+  const card = $("kpiStoppedCard");
+  card.classList.remove("is-down", "is-up", "is-flat");
+  card.disabled = false;
+  card.setAttribute("aria-disabled", stopped.n ? "false" : "true");
+  card.setAttribute("aria-pressed", state.paradas ? "true" : "false");
+  if (!stopped.hadPrev) {
+    $("kpiStopped").textContent = "—";
+    $("kpiStoppedSub").textContent = "Sem base no ano anterior";
+    card.classList.add("is-flat");
+    card.title = "Não há venda no mesmo intervalo do ano anterior";
+  } else if (!stopped.n) {
+    $("kpiStopped").textContent = "0";
+    $("kpiStoppedSub").textContent = "Nenhuma zerou no período";
+    card.classList.add("is-up");
+    card.title = "Toda loja com venda no ano anterior seguiu vendendo";
+  } else {
+    $("kpiStopped").textContent = numFmt.format(stopped.n);
+    $("kpiStoppedSub").textContent = `${moneyFmt.format(stopped.fat)} no ano anterior`;
+    card.classList.add("is-down");
+    card.title = "Lojas com venda no ano anterior e zero agora. Clique para listar.";
+  }
 }
 
 function renderTrend(rows) {
@@ -863,7 +972,7 @@ function renderItems(baseRows) {
     : `<tr><td colspan="7" class="empty-row">Sem itens neste recorte de cliente/grupo.</td></tr>`;
 }
 
-function renderRankings(curRows, prevRows) {
+function renderRankings(curRows, prevRows, stopped) {
   const prevGrupo = new Map(aggregateBy(prevRows, "grupo").map((a) => [a.key, a]));
   const prevLoja = new Map(aggregateBy(prevRows, "loja").map((a) => [a.key, a]));
   let grupos = aggregateBy(curRows, "grupo").map((a) => {
@@ -875,14 +984,24 @@ function renderRankings(curRows, prevRows) {
       pctVol: pctChange(a.vol, prev?.vol || 0)
     };
   });
-  let lojas = aggregateBy(curRows, "loja").map((a) => {
-    const prev = prevLoja.get(a.key);
-    return {
-      ...a,
-      pct: pctChange(a.fat, prev?.fat || 0),
-      pctVol: pctChange(a.vol, prev?.vol || 0)
-    };
-  });
+  let lojas = state.paradas
+    ? stopped.list.map((a) => ({
+        key: a.key,
+        grupo: a.grupo,
+        vend: a.vend,
+        fat: a.fat,
+        vol: a.vol,
+        pct: a.fat ? -1 : null,
+        pctVol: a.vol ? -1 : null
+      }))
+    : aggregateBy(curRows, "loja").map((a) => {
+        const prev = prevLoja.get(a.key);
+        return {
+          ...a,
+          pct: pctChange(a.fat, prev?.fat || 0),
+          pctVol: pctChange(a.vol, prev?.vol || 0)
+        };
+      });
 
   const sortVal = (row, key) => {
     if (key === "name") return row.key;
@@ -909,11 +1028,19 @@ function renderRankings(curRows, prevRows) {
   $("grupoCount").textContent = scope
     ? `${numFmt.format(grupos.length)} grupos · ${scope}`
     : `${numFmt.format(grupos.length)} grupos no período`;
-  $("lojaCount").textContent = scope
-    ? `${numFmt.format(lojas.length)} lojas · ${scope}`
-    : `${numFmt.format(lojas.length)} lojas no período`;
+  const lojaHeadFat = document.querySelector("[data-sort-loja='fat']");
+  const lojaHeadVol = document.querySelector("[data-sort-loja='vol']");
+  if (lojaHeadFat) lojaHeadFat.textContent = state.paradas ? "Fat. ano anterior" : "Faturamento";
+  if (lojaHeadVol) lojaHeadVol.textContent = state.paradas ? "Vol. ano anterior" : "Volume";
+  $("lojaCard")?.classList.toggle("is-paradas", state.paradas);
+  $("lojaCount").textContent = state.paradas
+    ? `${numFmt.format(lojas.length)} lojas paradas · valores do ano anterior${scope ? ` · ${scope}` : ""}`
+    : scope
+      ? `${numFmt.format(lojas.length)} lojas · ${scope}`
+      : `${numFmt.format(lojas.length)} lojas no período`;
+  const lojasShown = state.paradas ? lojas : lojas.slice(0, 50);
   state.menuOptions.pickGrupo = grupos.slice(0, 40).map((g) => g.key);
-  state.menuOptions.pickLoja = lojas.slice(0, 50).map((l) => l.key);
+  state.menuOptions.pickLoja = lojasShown.map((l) => l.key);
   charts.grupoTips = grupos.slice(0, 40);
   $("grupoBody").innerHTML = charts.grupoTips.map((g, i) => `
     <tr data-pick-grupo="${i}" data-grupo-tip="${i}">
@@ -925,7 +1052,7 @@ function renderRankings(curRows, prevRows) {
       <td class="num">${numFmt.format(g.vol)}</td>
       <td class="num ${g.pctVol != null && g.pctVol < 0 ? "is-neg" : "is-pos"}">${g.pctVol == null ? "—" : pctFmt.format(g.pctVol)}</td>
     </tr>`).join("") || `<tr><td colspan="7" class="empty-row">Nenhum grupo neste recorte.</td></tr>`;
-  $("lojaBody").innerHTML = lojas.slice(0, 50).map((l, i) => `
+  $("lojaBody").innerHTML = lojasShown.map((l, i) => `
     <tr>
       <td class="col-pos">${i + 1}</td>
       <td><button type="button" class="linkish" data-pick-loja="${i}">${esc(l.key)}</button></td>
@@ -935,7 +1062,7 @@ function renderRankings(curRows, prevRows) {
       <td class="num ${l.pct != null && l.pct < 0 ? "is-neg" : "is-pos"}">${l.pct == null ? "—" : pctFmt.format(l.pct)}</td>
       <td class="num">${numFmt.format(l.vol)}</td>
       <td class="num ${l.pctVol != null && l.pctVol < 0 ? "is-neg" : "is-pos"}">${l.pctVol == null ? "—" : pctFmt.format(l.pctVol)}</td>
-    </tr>`).join("") || `<tr><td colspan="8" class="empty-row">Nenhuma loja neste recorte.</td></tr>`;
+    </tr>`).join("") || `<tr><td colspan="8" class="empty-row">${state.paradas ? "Nenhuma loja parada neste recorte." : "Nenhuma loja neste recorte."}</td></tr>`;
 }
 
 function ufTrendColor(row) {
@@ -1086,10 +1213,11 @@ function buildLookups(rows) {
   for (const r of rows) {
     let book = books.get(r.sku);
     if (!book) {
-      book = { sku: r.sku, desc: r.desc || "", cat: r.cat || "", digits: digitsOf(r.sku), lojas: new Set(), vends: new Set(), grupos: new Set(), ufs: new Set(), cats: new Set() };
+      book = { sku: r.sku, desc: r.desc || "", cat: r.cat || "", digits: digitsOf(r.sku), lojas: new Set(), ids: new Set(), vends: new Set(), grupos: new Set(), ufs: new Set(), cats: new Set() };
       books.set(r.sku, book);
     } else if (!book.desc && r.desc) book.desc = r.desc;
     book.lojas.add(r.loja);
+    book.ids.add(storeId(r));
     book.vends.add(r.vend);
     book.grupos.add(r.grupo);
     book.ufs.add(r.uf);
@@ -1098,7 +1226,7 @@ function buildLookups(rows) {
     let store = stores.get(r.loja);
     if (!store) {
       const cnpjDigits = digitsOf(r.cnpj || r.loja);
-      store = { loja: r.loja, grupo: r.grupo, vend: r.vend, cnpjDigits, lojaNorm: norm(r.loja), vends: new Set(), grupos: new Set(), ufs: new Set(), cats: new Set(), skus: new Set() };
+      store = { id: storeId(r), loja: r.loja, grupo: r.grupo, vend: r.vend, cnpjDigits, lojaNorm: norm(r.loja), vends: new Set(), grupos: new Set(), ufs: new Set(), cats: new Set(), skus: new Set() };
       stores.set(r.loja, store);
     }
     store.vends.add(r.vend);
@@ -1119,6 +1247,7 @@ function storeInScope(store) {
   if (!hitsFilter(store.ufs, f.uf)) return false;
   if (!hitsFilter(store.cats, f.categoria)) return false;
   if (state.sku && !store.skus.has(state.sku)) return false;
+  if (state.novos && !state.newStoreIds.has(store.id)) return false;
   return true;
 }
 
@@ -1129,6 +1258,11 @@ function bookInScope(book) {
   if (!hitsFilter(book.lojas, f.loja)) return false;
   if (!hitsFilter(book.ufs, f.uf)) return false;
   if (!hitsFilter(book.cats, f.categoria)) return false;
+  if (state.novos) {
+    let known = false;
+    for (const id of book.ids) if (state.newStoreIds.has(id)) { known = true; break; }
+    if (!known) return false;
+  }
   return true;
 }
 
@@ -1223,18 +1357,20 @@ function renderAll() {
   const prevWin = { ...win, y: state.analysisYear - 1 };
   const curRows = base.filter((r) => inWindow(r, win));
   const prevRows = base.filter((r) => inWindow(r, prevWin));
+  const stopped = stoppedStores(curRows, prevRows);
+  if (state.paradas && !stopped.n) state.paradas = false;
 
   $("sideBase").textContent = `${state.fileName || "Base"} · por mês`;
   renderYearSwitch();
   renderFilterBar();
   renderChips();
   renderSideFilters();
-  renderKpis(curRows, prevRows);
+  renderKpis(curRows, prevRows, stopped);
   renderTrend(base);
   renderDonut(curRows);
   renderUfMap(curRows, prevRows);
   renderItems(curRows);
-  renderRankings(curRows, prevRows);
+  renderRankings(curRows, prevRows, stopped);
   renderSearch();
 }
 
@@ -1247,6 +1383,7 @@ async function ingestText(text, fileName) {
     state.rows = parsed.rows;
     state.meta = parsed.meta;
     buildLookups(state.rows);
+    buildNewStores(state.rows, parsed.meta.maxKey);
     state.analysisYear = parsed.analysisYear;
     state.fileName = fileName || "sell-out.csv";
     state.menuOptions = {};
@@ -1254,6 +1391,8 @@ async function ingestText(text, fileName) {
     state.periodMonth = null;
     state.sku = "";
     state.skuDesc = "";
+    state.novos = false;
+    state.paradas = false;
     state.isbnQuery = "";
     state.itemGrupo = "";
     state.itemLoja = "";
@@ -1379,6 +1518,8 @@ function clearFilters() {
   state.isbnQuery = "";
   state.sku = "";
   state.skuDesc = "";
+  state.novos = false;
+  state.paradas = false;
   $("q").value = "";
   $("qIsbn").value = "";
   renderAll();
@@ -1415,6 +1556,24 @@ function wire() {
     if (goto) {
       document.querySelectorAll(".nav button").forEach((b) => b.classList.toggle("is-active", b === goto));
       $(goto.getAttribute("data-goto"))?.scrollIntoView({ behavior: "smooth", block: "start" });
+      return;
+    }
+
+    const novosBtn = t.closest("[data-toggle-novos]");
+    if (novosBtn) {
+      state.novos = !state.novos;
+      state.openMenu = null;
+      pruneIncompatibleFilters();
+      renderAll();
+      return;
+    }
+
+    const stoppedBtn = t.closest("#kpiStoppedCard");
+    if (stoppedBtn) {
+      if (stoppedBtn.getAttribute("aria-disabled") === "true") return;
+      state.paradas = !state.paradas;
+      renderAll();
+      if (state.paradas) $("lojaCard")?.scrollIntoView({ behavior: "smooth", block: "start" });
       return;
     }
 
