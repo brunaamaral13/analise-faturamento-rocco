@@ -1033,8 +1033,11 @@ function renderRankings(curRows, prevRows, stopped) {
   if (lojaHeadFat) lojaHeadFat.textContent = state.paradas ? "Fat. ano anterior" : "Faturamento";
   if (lojaHeadVol) lojaHeadVol.textContent = state.paradas ? "Vol. ano anterior" : "Volume";
   $("lojaCard")?.classList.toggle("is-paradas", state.paradas);
+  const paradasLabel = lojas.length === 1
+    ? "1 loja parada"
+    : `${numFmt.format(lojas.length)} lojas paradas`;
   $("lojaCount").textContent = state.paradas
-    ? `${numFmt.format(lojas.length)} lojas paradas · valores do ano anterior${scope ? ` · ${scope}` : ""}`
+    ? `${paradasLabel} · valores do ano anterior${scope ? ` · ${scope}` : ""}`
     : scope
       ? `${numFmt.format(lojas.length)} lojas · ${scope}`
       : `${numFmt.format(lojas.length)} lojas no período`;
