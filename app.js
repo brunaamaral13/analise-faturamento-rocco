@@ -11,10 +11,16 @@ const DIMS = [
 ];
 const SLICE_COLORS = ["#b5191a","#e0a106","#0f7a5a","#1b2a4a","#7c4d9e","#d46a2e","#3d7ea6","#5b8c5a","#b08968","#8d3b4c","#4c6e8a","#c47b9b"];
 
+const ACCESS_LOG_URL = "https://script.google.com/macros/s/AKfycbzO25wQT66bWLL-x-QfvVqYQ4iKoz4eMYGBrQ3t4nzpO4JtTndJi3f9jWc5_TeKbxkPaw/exec";
+const SELLER_STORAGE_KEY = "rocco_sellout_vendedor";
+const SELLERS = ["Bruna", "Geysa", "Gilsan", "Michael", "Rafaela", "Rossano", "Salete", "Silvia"];
+
 const state = {
   rows: [],
   meta: null,
   fileName: "",
+  seller: "",
+  sellerPick: "",
   filters: { vendedor: new Set(), grupo: new Set(), loja: new Set(), uf: new Set(), categoria: new Set() },
   analysisYear: null,
   periodMonth: null,
@@ -1180,7 +1186,74 @@ async function ingestText(text, fileName) {
   }
 }
 
+function logSellerAccess(vendedor) {
+  if (!ACCESS_LOG_URL || !vendedor) return;
+  const url = `${ACCESS_LOG_URL}${ACCESS_LOG_URL.includes("?") ? "&" : "?"}vendedor=${encodeURIComponent(vendedor)}&t=${Date.now()}`;
+  try {
+    const img = new Image();
+    img.src = url;
+  } catch (err) {
+    // ignore
+  }
+  fetch(url, { method: "GET", mode: "no-cors", keepalive: true }).catch(() => {});
+}
+
+function renderSellerGateOptions() {
+  const list = $("sellerGateList");
+  if (!list) return;
+  list.innerHTML = SELLERS.map((name) => `
+    <button type="button" class="seller-gate-option${state.sellerPick === name ? " is-selected" : ""}" data-seller="${esc(name)}" role="option" aria-selected="${state.sellerPick === name ? "true" : "false"}">${esc(name)}</button>
+  `).join("");
+  const btn = $("btnSellerContinue");
+  if (btn) btn.disabled = !state.sellerPick;
+}
+
+function showSellerGate() {
+  state.sellerPick = SELLERS.includes(state.seller) ? state.seller : "";
+  $("sellerGate").hidden = false;
+  $("appShell").hidden = true;
+  renderSellerGateOptions();
+}
+
+function enterApp(vendedor, log) {
+  if (!SELLERS.includes(vendedor)) return;
+  state.seller = vendedor;
+  state.sellerPick = vendedor;
+  try {
+    sessionStorage.setItem(SELLER_STORAGE_KEY, vendedor);
+  } catch (err) {
+    // ignore storage errors
+  }
+  $("sellerNameLabel").textContent = vendedor;
+  $("sellerGate").hidden = true;
+  $("appShell").hidden = false;
+  if (log) logSellerAccess(vendedor);
+}
+
+function initSellerGate() {
+  let saved = "";
+  try {
+    saved = sessionStorage.getItem(SELLER_STORAGE_KEY) || "";
+  } catch (err) {
+    saved = "";
+  }
+  $("sellerGateList").addEventListener("click", (e) => {
+    const btn = e.target.closest("[data-seller]");
+    if (!btn) return;
+    state.sellerPick = btn.getAttribute("data-seller") || "";
+    renderSellerGateOptions();
+  });
+  $("btnSellerContinue").addEventListener("click", () => {
+    if (!state.sellerPick) return;
+    enterApp(state.sellerPick, true);
+  });
+  $("btnChangeSeller").addEventListener("click", () => showSellerGate());
+  if (saved && SELLERS.includes(saved)) enterApp(saved, false);
+  else showSellerGate();
+}
+
 function readFile(file) {
+  if (!state.seller) return;
   $("loading").hidden = false;
   $("loadingText").textContent = "Lendo o sell-out…";
   const reader = new FileReader();
@@ -1221,6 +1294,7 @@ function clearFilters() {
 }
 
 function wire() {
+  initSellerGate();
   $("btnFile").addEventListener("click", () => $("file").click());
   $("pick").addEventListener("click", () => $("file").click());
   $("file").addEventListener("change", () => {

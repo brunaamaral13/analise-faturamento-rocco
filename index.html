@@ -7,15 +7,30 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,560;9..144,650&family=Outfit:wght@360;460;560;650&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css">
+  <link rel="stylesheet" href="styles.css?v=20261106-acesso">
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%23b5191a'/%3E%3C/svg%3E">
 </head>
 <body>
-  <div class="app">
+  <div class="seller-gate" id="sellerGate" role="dialog" aria-modal="true" aria-labelledby="sellerGateTitle">
+    <div class="seller-gate-card">
+      <p class="seller-gate-eyebrow">Rocco · Sell-out</p>
+      <h1 id="sellerGateTitle">Quem está usando?</h1>
+      <p class="seller-gate-text">Selecione seu nome para continuar. O acesso fica registrado.</p>
+      <div class="seller-gate-list" id="sellerGateList" role="listbox" aria-label="Lista de vendedores"></div>
+      <button type="button" class="seller-gate-btn" id="btnSellerContinue" disabled>Continuar</button>
+    </div>
+  </div>
+
+  <div class="app" id="appShell" hidden>
     <aside class="sidebar">
       <div class="brand">
         <img src="logo-rocco.png" alt="Editora Rocco" width="184" height="50">
         <small>Sell-out</small>
+      </div>
+      <div class="side-who">
+        <span>Usando como</span>
+        <strong id="sellerNameLabel">—</strong>
+        <button type="button" id="btnChangeSeller">Trocar</button>
       </div>
 
       <nav class="nav" aria-label="Seções">
@@ -327,6 +342,6 @@
   </div>
 
   <script src="brazil-map.js"></script>
-  <script src="app.js?v=20261106-isbn"></script>
+  <script src="app.js?v=20261106-acesso"></script>
 </body>
 </html>
