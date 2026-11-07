@@ -355,13 +355,16 @@
         </div>
 
         <section id="viewIn" class="empty" hidden>
-          <div class="drop">
+          <div class="drop" id="dropIn">
             <div class="drop-icon" aria-hidden="true">
-              <svg viewBox="0 0 24 24"><path d="M4 19V5"/><path d="M4 19h16"/><path d="M8 15l3-4 2 2 4-5"/></svg>
+              <svg viewBox="0 0 24 24"><path d="M12 16V6"/><path d="m8 9 4-4 4 4"/><path d="M5 19h14"/></svg>
             </div>
-            <h2>Painel de sell-in</h2>
-            <p>Aqui entra o que a Rocco faturou para a loja. O sell-out que você já abriu continua na outra aba, com o arquivo e os filtros do jeito que deixou.</p>
+            <h2 id="sellInTitle">Solte o CSV de sell-in</h2>
+            <p id="sellInText">Use o arquivo de faturamento da Rocco para a loja. A base de sell-out continua na outra aba.</p>
+            <button type="button" class="btn" id="pickIn">Selecionar arquivo</button>
+            <p class="error" id="errorIn" hidden></p>
           </div>
+          <input id="fileIn" type="file" accept=".csv,text/csv" hidden>
         </section>
       </div>
     </main>
@@ -377,7 +380,7 @@
   </div>
 
   <script src="brazil-map.js"></script>
-  <script src="app.js?v=20261106-novos3"></script>
-  <script src="sell-in/painel.js?v=20261106-abas"></script>
+  <script src="app.js?v=20261106-alfa"></script>
+  <script src="sell-in/painel.js?v=20261106-sellin-csv"></script>
 </body>
 </html>

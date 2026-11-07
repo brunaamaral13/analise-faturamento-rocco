@@ -203,13 +203,9 @@ function optionsFor(dimKey) {
     cur.lojas.add(r.cnpj || r.loja);
     map.set(v, cur);
   }
-  const byLojas = dimKey === "vendedor";
   return [...map.entries()]
     .map(([value, cur]) => [value, cur.lojas.size, cur.fat])
-    .sort((a, b) => {
-      if (byLojas) return b[1] - a[1] || a[0].localeCompare(b[0], "pt-BR");
-      return b[2] - a[2] || a[0].localeCompare(b[0], "pt-BR");
-    });
+    .sort((a, b) => a[0].localeCompare(b[0], "pt-BR", { sensitivity: "base" }));
 }
 
 function otherActiveFilters(exceptKey) {
@@ -1558,7 +1554,10 @@ function clearFilters() {
 
 function wire() {
   initSellerGate();
-  $("btnFile").addEventListener("click", () => $("file").click());
+  $("btnFile").addEventListener("click", () => {
+    const input = document.body.dataset.view === "in" ? $("fileIn") : $("file");
+    input?.click();
+  });
   $("pick").addEventListener("click", () => $("file").click());
   $("file").addEventListener("change", () => {
     const file = $("file").files?.[0];
