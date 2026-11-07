@@ -11,7 +11,7 @@ const DIMS = [
 ];
 const SLICE_COLORS = ["#b5191a","#e0a106","#0f7a5a","#1b2a4a","#7c4d9e","#d46a2e","#3d7ea6","#5b8c5a","#b08968","#8d3b4c","#4c6e8a","#c47b9b"];
 
-const ACCESS_LOG_URL = "https://script.google.com/macros/s/AKfycbzO25wQT66bWLL-x-QfvVqYQ4iKoz4eMYGBrQ3t4nzpO4JtTndJi3f9jWc5_TeKbxkPaw/exec";
+const ACCESS_LOG_URL = "https://script.google.com/macros/s/AKfycbxBZ_YCXrDiwr1hFVlL8PWn6pyfH5-7e7yWknE9HOsIGyMrPyRVRoBG95EHenABRrEv6A/exec";
 const SELLER_STORAGE_KEY = "rocco_sellout_vendedor";
 const SELLERS = ["Bruna", "Geysa", "Gilsan", "Michael", "Rafaela", "Rossano", "Salete", "Silvia"];
 
