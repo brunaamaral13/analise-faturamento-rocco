@@ -1,0 +1,321 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Modelo · Sell-out e sell-in</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,560;9..144,650&family=Outfit:wght@360;460;560;650&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --red: #b5191a;
+      --ink: #1c2230;
+      --muted: #667085;
+      --line: #e6e8f0;
+      --bg: #f3f5fa;
+      --amber: #f0b429;
+      --amber-ink: #3d2a04;
+      --green: #0f7a5a;
+      --navy: #1b2a4a;
+      --purple: #5c2d82;
+      --down: #9d2c3c;
+      --shadow: 0 10px 28px rgba(28, 34, 48, 0.06);
+      --sans: "Outfit", "Segoe UI", sans-serif;
+      --serif: "Fraunces", Georgia, serif;
+      --side: 240px;
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; padding: 0; }
+    body {
+      font-family: var(--sans);
+      color: var(--ink);
+      background:
+        radial-gradient(900px 420px at 110% -10%, rgba(210, 60, 72, 0.08), transparent 50%),
+        radial-gradient(700px 380px at -10% 30%, rgba(27, 42, 74, 0.06), transparent 46%),
+        var(--bg);
+      min-height: 100vh;
+    }
+    button { font-family: inherit; cursor: pointer; }
+    h1, h2, p { margin: 0; }
+    .app { display: grid; grid-template-columns: var(--side) 1fr; min-height: 100vh; }
+    .sidebar {
+      position: sticky; top: 0; height: 100vh;
+      background: var(--red); color: #fff;
+      display: flex; flex-direction: column;
+      padding: 22px 14px 16px;
+    }
+    .brand { padding: 2px 10px 18px; }
+    .brand img { display: block; width: 168px; height: auto; }
+    .brand small {
+      display: block; margin-top: 8px;
+      opacity: .82; font-size: 12px; letter-spacing: .08em; text-transform: uppercase;
+    }
+    .side-who {
+      display: flex; align-items: center; gap: 8px;
+      margin: 0 10px 14px; padding: 8px 10px;
+      background: rgba(0,0,0,.12); border-radius: 12px;
+    }
+    .side-who span { opacity: .75; font-size: 11px; letter-spacing: .04em; text-transform: uppercase; }
+    .side-who strong { flex: 1; font-size: 14px; }
+    .nav { display: flex; flex-direction: column; gap: 4px; }
+    .nav span {
+      display: flex; align-items: center; gap: 10px;
+      border-radius: 12px; padding: 11px 12px;
+      font-size: 14.5px; font-weight: 500; opacity: .55;
+    }
+    .nav span.is-on { background: rgba(255,255,255,.18); opacity: 1; }
+    .side-note {
+      margin-top: auto; padding: 12px;
+      font-size: 12.5px; line-height: 1.45; color: rgba(255,255,255,.86);
+    }
+    .side-note a { color: #fff; }
+    .main { padding: 22px 28px 48px; }
+    .banner {
+      display: flex; justify-content: space-between; gap: 16px; align-items: center;
+      background: #fff8e8; border: 1px solid #f0d48a; color: #6a4b08;
+      border-radius: 14px; padding: 12px 14px; margin-bottom: 18px;
+      font-size: 14px; line-height: 1.4;
+    }
+    .banner a {
+      flex: none; color: var(--red); font-weight: 650; text-decoration: none;
+    }
+    .top { display: flex; justify-content: space-between; gap: 18px; align-items: flex-end; margin-bottom: 16px; }
+    .eyebrow { font-size: 12px; letter-spacing: .08em; text-transform: uppercase; color: var(--red); font-weight: 650; }
+    h1 { font-family: var(--serif); font-size: clamp(1.8rem, 3vw, 2.4rem); letter-spacing: -.02em; margin-top: 4px; }
+    .top p { color: var(--muted); margin-top: 4px; }
+    .tabs { display: flex; gap: 8px; background: #fff; border: 1px solid var(--line); border-radius: 14px; padding: 6px; }
+    .tabs button {
+      border: 0; background: transparent; border-radius: 10px;
+      padding: 10px 16px; font-size: 15px; font-weight: 650; color: var(--muted);
+    }
+    .tabs button[aria-pressed="true"] { background: var(--red); color: #fff; }
+    .hint { color: var(--muted); font-size: 14px; margin: 0 0 16px; }
+    .kpis { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 12px; }
+    .kpi {
+      border-radius: 18px; padding: 18px 16px 16px; min-height: 132px;
+      display: flex; flex-direction: column; gap: 6px; color: #fff;
+      box-shadow: var(--shadow);
+    }
+    .kpi span { font-size: 13px; font-weight: 650; opacity: .88; }
+    .kpi b { font-family: var(--serif); font-size: 28px; letter-spacing: -.03em; line-height: 1.05; }
+    .kpi small { margin-top: auto; font-size: 12.5px; opacity: .82; }
+    .amber { background: var(--amber); color: var(--amber-ink); }
+    .green { background: var(--green); }
+    .navy { background: var(--navy); }
+    .down { background: var(--down); }
+    .purple { background: var(--purple); }
+    .soft-row { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin-top: 12px; }
+    .soft {
+      background: #fff; color: var(--ink); border: 1px solid var(--line);
+      border-radius: 18px; padding: 16px; min-height: 104px;
+      display: flex; flex-direction: column; gap: 4px; box-shadow: var(--shadow);
+    }
+    .soft span { font-size: 13px; font-weight: 650; color: var(--muted); }
+    .soft b { font-family: var(--serif); font-size: 28px; }
+    .soft small { margin-top: auto; color: var(--muted); font-size: 12.5px; }
+    .grid { display: grid; grid-template-columns: 1.3fr .7fr; gap: 14px; margin-top: 16px; }
+    .card { background: #fff; border: 1px solid var(--line); border-radius: 18px; padding: 16px 16px 8px; box-shadow: var(--shadow); }
+    .card h2 { font-size: 18px; }
+    .card .sub { color: var(--muted); font-size: 13px; margin: 4px 0 12px; }
+    .bars { display: flex; align-items: flex-end; gap: 8px; height: 140px; padding-bottom: 8px; }
+    .bars i {
+      flex: 1; display: block; border-radius: 8px 8px 3px 3px;
+      background: #d9dde8; position: relative;
+    }
+    .bars i em {
+      position: absolute; left: 0; right: 0; bottom: 0;
+      background: var(--red); border-radius: inherit; height: var(--h);
+    }
+    .bars span { position: absolute; bottom: -18px; left: 0; right: 0; text-align: center; font-size: 11px; color: var(--muted); font-style: normal; }
+    table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+    th { text-align: left; font-size: 12px; color: var(--muted); font-weight: 650; padding: 6px 8px; border-bottom: 1px solid var(--line); }
+    td { padding: 9px 8px; border-bottom: 1px solid #f0f2f6; }
+    td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+    .pos { color: var(--green); font-weight: 650; }
+    .neg { color: var(--down); font-weight: 650; }
+    [hidden] { display: none !important; }
+    @media (max-width: 1100px) {
+      .kpis, .soft-row { grid-template-columns: 1fr 1fr; }
+      .grid { grid-template-columns: 1fr; }
+      .top { flex-direction: column; align-items: stretch; }
+    }
+    @media (max-width: 860px) {
+      .app { grid-template-columns: 1fr; }
+      .sidebar { position: static; height: auto; }
+      .side-note { margin-top: 12px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <aside class="sidebar">
+      <div class="brand">
+        <img src="logo-rocco.png" alt="Editora Rocco" width="168" height="46">
+        <small id="brandLabel">Sell-out</small>
+      </div>
+      <div class="side-who">
+        <span>Usando como</span>
+        <strong>Bruna</strong>
+      </div>
+      <nav class="nav" aria-label="Seções do modelo">
+        <span class="is-on">Visão geral</span>
+        <span>Clientes</span>
+        <span>Itens</span>
+        <span>Evolução</span>
+        <span>Por UF</span>
+      </nav>
+      <p class="side-note">Este arquivo é só o modelo. O sell-out que você já usa continua em <a href="index.html">index.html</a>.</p>
+    </aside>
+
+    <main class="main">
+      <div class="banner">
+        <span>Modelo com números de exemplo. Trocar de aba não apaga a outra, e nada aqui altera o dashboard atual.</span>
+        <a href="index.html">Abrir o sell-out de verdade</a>
+      </div>
+
+      <header class="top">
+        <div>
+          <p class="eyebrow">Mesmo endereço</p>
+          <h1 id="title">Desempenho sell-out</h1>
+          <p id="source">Dados via Bookinfo · o que a loja vendeu ao leitor</p>
+        </div>
+        <div class="tabs" role="tablist" aria-label="Painel">
+          <button type="button" id="tabOut" role="tab" aria-pressed="true" aria-controls="panelOut">Sell-out</button>
+          <button type="button" id="tabIn" role="tab" aria-pressed="false" aria-controls="panelIn">Sell-in</button>
+        </div>
+      </header>
+      <p class="hint" id="hint">O arquivo desta aba é o CSV de sell-out. A aba Sell-in guarda o CSV dela, separado.</p>
+
+      <section id="panelOut" role="tabpanel">
+        <div class="kpis">
+          <article class="kpi amber"><span>Faturamento · jan–out/2026</span><b>R$ 1.842.350</b><small>Ano anterior: R$ 1.610.200</small></article>
+          <article class="kpi green"><span>Variação vs. ano anterior</span><b>+14,4%</b><small>mesmo intervalo do ano anterior</small></article>
+          <article class="kpi navy"><span>Lojas ativas</span><b>186</b><small>com venda no período</small></article>
+          <article class="kpi down"><span>Lojas paradas</span><b>12</b><small>R$ 48.920 no ano anterior</small></article>
+          <article class="kpi purple"><span>Volume</span><b>42.318</b><small>unidades vendidas</small></article>
+        </div>
+        <div class="soft-row">
+          <article class="soft"><span>Ticket médio</span><b>R$ 68,40</b><small>por cupom</small></article>
+          <article class="soft"><span>Grupos ativos</span><b>54</b><small>grupos econômicos</small></article>
+          <article class="soft"><span>SKUs distintos</span><b>1.284</b><small>títulos no recorte</small></article>
+          <article class="soft"><span>Cupons</span><b>26.940</b><small>transações</small></article>
+        </div>
+        <div class="grid">
+          <article class="card">
+            <h2>Evolução mensal</h2>
+            <p class="sub">Faturamento de exemplo, jan–out</p>
+            <div class="bars" aria-hidden="true">
+              <i style="height:46%"><em style="--h:70%"></em><span>jan</span></i>
+              <i style="height:52%"><em style="--h:74%"></em><span>fev</span></i>
+              <i style="height:61%"><em style="--h:80%"></em><span>mar</span></i>
+              <i style="height:58%"><em style="--h:78%"></em><span>abr</span></i>
+              <i style="height:70%"><em style="--h:86%"></em><span>mai</span></i>
+              <i style="height:74%"><em style="--h:84%"></em><span>jun</span></i>
+              <i style="height:80%"><em style="--h:90%"></em><span>jul</span></i>
+              <i style="height:88%"><em style="--h:92%"></em><span>ago</span></i>
+              <i style="height:84%"><em style="--h:88%"></em><span>set</span></i>
+              <i style="height:96%"><em style="--h:100%"></em><span>out</span></i>
+            </div>
+          </article>
+          <article class="card">
+            <h2>Lojas</h2>
+            <p class="sub">Recorte de exemplo</p>
+            <table>
+              <thead><tr><th>Loja</th><th class="num">Faturamento</th><th class="num">Var.</th></tr></thead>
+              <tbody>
+                <tr><td>Livraria Cultura</td><td class="num">R$ 186.400</td><td class="num pos">+18%</td></tr>
+                <tr><td>Leitura</td><td class="num">R$ 142.200</td><td class="num pos">+6%</td></tr>
+                <tr><td>Saraiva</td><td class="num">R$ 98.750</td><td class="num neg">−12%</td></tr>
+                <tr><td>Martins Fontes</td><td class="num">R$ 76.300</td><td class="num pos">+3%</td></tr>
+              </tbody>
+            </table>
+          </article>
+        </div>
+      </section>
+
+      <section id="panelIn" role="tabpanel" hidden>
+        <div class="kpis">
+          <article class="kpi amber"><span>Faturamento · jan–out/2026</span><b>R$ 2.410.000</b><small>Ano anterior: R$ 2.180.000</small></article>
+          <article class="kpi green"><span>Variação vs. ano anterior</span><b>+10,6%</b><small>mesmo intervalo do ano anterior</small></article>
+          <article class="kpi navy"><span>Clientes compradores</span><b>142</b><small>com pedido faturado</small></article>
+          <article class="kpi down"><span>Clientes sem recompra</span><b>9</b><small>R$ 126.400 no ano anterior</small></article>
+          <article class="kpi purple"><span>Volume expedido</span><b>51.200</b><small>unidades faturadas</small></article>
+        </div>
+        <div class="soft-row">
+          <article class="soft"><span>Ticket do pedido</span><b>R$ 1.266</b><small>por nota</small></article>
+          <article class="soft"><span>Grupos ativos</span><b>48</b><small>grupos econômicos</small></article>
+          <article class="soft"><span>Títulos faturados</span><b>960</b><small>ISBNs no recorte</small></article>
+          <article class="soft"><span>Notas</span><b>1.902</b><small>documentos</small></article>
+        </div>
+        <div class="grid">
+          <article class="card">
+            <h2>Evolução mensal</h2>
+            <p class="sub">Faturamento de exemplo, jan–out</p>
+            <div class="bars" aria-hidden="true">
+              <i style="height:62%"><em style="--h:100%"></em><span>jan</span></i>
+              <i style="height:40%"><em style="--h:72%"></em><span>fev</span></i>
+              <i style="height:78%"><em style="--h:90%"></em><span>mar</span></i>
+              <i style="height:55%"><em style="--h:80%"></em><span>abr</span></i>
+              <i style="height:48%"><em style="--h:70%"></em><span>mai</span></i>
+              <i style="height:84%"><em style="--h:94%"></em><span>jun</span></i>
+              <i style="height:50%"><em style="--h:76%"></em><span>jul</span></i>
+              <i style="height:72%"><em style="--h:88%"></em><span>ago</span></i>
+              <i style="height:66%"><em style="--h:82%"></em><span>set</span></i>
+              <i style="height:90%"><em style="--h:96%"></em><span>out</span></i>
+            </div>
+          </article>
+          <article class="card">
+            <h2>Clientes</h2>
+            <p class="sub">O que a Rocco faturou para a rede</p>
+            <table>
+              <thead><tr><th>Cliente</th><th class="num">Faturamento</th><th class="num">Var.</th></tr></thead>
+              <tbody>
+                <tr><td>Livraria Cultura</td><td class="num">R$ 240.000</td><td class="num pos">+9%</td></tr>
+                <tr><td>Leitura</td><td class="num">R$ 188.500</td><td class="num neg">−4%</td></tr>
+                <tr><td>Saraiva</td><td class="num">R$ 151.200</td><td class="num pos">+15%</td></tr>
+                <tr><td>Martins Fontes</td><td class="num">R$ 97.800</td><td class="num pos">+2%</td></tr>
+              </tbody>
+            </table>
+          </article>
+        </div>
+      </section>
+    </main>
+  </div>
+  <script>
+    const copy = {
+      out: {
+        brand: "Sell-out",
+        title: "Desempenho sell-out",
+        source: "Dados via Bookinfo · o que a loja vendeu ao leitor",
+        hint: "O arquivo desta aba é o CSV de sell-out. A aba Sell-in guarda o CSV dela, separado."
+      },
+      in: {
+        brand: "Sell-in",
+        title: "Desempenho sell-in",
+        source: "Dados do faturamento Rocco · o que a editora vendeu à loja",
+        hint: "O arquivo desta aba é o CSV de sell-in. A aba Sell-out continua com o arquivo dela."
+      }
+    };
+
+    function show(which) {
+      const on = which === "in" ? "in" : "out";
+      document.getElementById("panelOut").hidden = on !== "out";
+      document.getElementById("panelIn").hidden = on !== "in";
+      document.getElementById("tabOut").setAttribute("aria-pressed", String(on === "out"));
+      document.getElementById("tabIn").setAttribute("aria-pressed", String(on === "in"));
+      const text = copy[on];
+      document.getElementById("brandLabel").textContent = text.brand;
+      document.getElementById("title").textContent = text.title;
+      document.getElementById("source").textContent = text.source;
+      document.getElementById("hint").textContent = text.hint;
+      if (location.hash !== "#" + on) history.replaceState(null, "", "#" + on);
+    }
+
+    document.getElementById("tabOut").addEventListener("click", () => show("out"));
+    document.getElementById("tabIn").addEventListener("click", () => show("in"));
+    window.addEventListener("hashchange", () => show(location.hash === "#in" ? "in" : "out"));
+    show(location.hash === "#in" ? "in" : "out");
+  </script>
+</body>
+</html>

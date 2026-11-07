@@ -3,17 +3,17 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Rocco · Sell-out</title>
+  <title>Rocco · Sell-out e sell-in</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,560;9..144,650&family=Outfit:wght@360;460;560;650&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css?v=20261106-paradas">
+  <link rel="stylesheet" href="styles.css?v=20261106-novos3">
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%23b5191a'/%3E%3C/svg%3E">
 </head>
 <body>
   <div class="seller-gate" id="sellerGate" role="dialog" aria-modal="true" aria-labelledby="sellerGateTitle">
     <div class="seller-gate-card">
-      <p class="seller-gate-eyebrow">Rocco · Sell-out</p>
+      <p class="seller-gate-eyebrow">Rocco</p>
       <h1 id="sellerGateTitle">Quem está usando?</h1>
       <p class="seller-gate-text">Selecione seu nome para continuar.</p>
       <div class="seller-gate-list" id="sellerGateList" role="listbox" aria-label="Lista de vendedores"></div>
@@ -25,7 +25,7 @@
     <aside class="sidebar">
       <div class="brand">
         <img src="logo-rocco.png" alt="Editora Rocco" width="184" height="50">
-        <small>Sell-out</small>
+        <small id="brandPanel">Sell-out</small>
       </div>
       <div class="side-who">
         <span>Usando como</span>
@@ -82,10 +82,15 @@
       <div class="main-inner">
         <header class="top">
           <div>
-            <h1>Desempenho sell-out</h1>
-            <p>Dados via Bookinfo</p>
+            <h1 id="viewTitle">Desempenho sell-out</h1>
+            <p id="viewSource">Dados via Bookinfo</p>
           </div>
           <div class="top-tools">
+            <div class="view-tabs" role="tablist" aria-label="Painel">
+              <button type="button" id="tabSellOut" role="tab" aria-pressed="true" aria-controls="viewOut">Sell-out</button>
+              <button type="button" id="tabSellIn" role="tab" aria-pressed="false" aria-controls="viewIn">Sell-in</button>
+            </div>
+            <div class="out-tools" id="outTools">
             <div class="year-switch" id="yearSwitch" role="group" aria-label="Ano em análise"></div>
             <div class="search-wrap">
               <label class="search">
@@ -101,9 +106,11 @@
               </label>
               <div id="isbnHit" class="search-hit" hidden></div>
             </div>
+            </div>
           </div>
         </header>
 
+        <div id="viewOut">
         <section id="empty" class="empty">
           <div class="drop" id="drop">
             <div class="drop-icon" aria-hidden="true">
@@ -145,6 +152,11 @@
                 <span>Lojas paradas</span>
                 <b id="kpiStopped">—</b>
                 <small id="kpiStoppedSub">venda no ano anterior, zero agora</small>
+              </button>
+              <button type="button" class="kpi kpi-teal" id="kpiNovosCard" aria-disabled="true">
+                <span>Novos na base</span>
+                <b id="kpiNovos">—</b>
+                <small id="kpiNovosSub">primeira venda nos últimos 12 meses</small>
               </button>
               <article class="kpi kpi-purple">
                 <span>Volume</span>
@@ -340,6 +352,17 @@
             </article>
           </section>
         </div>
+        </div>
+
+        <section id="viewIn" class="empty" hidden>
+          <div class="drop">
+            <div class="drop-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24"><path d="M4 19V5"/><path d="M4 19h16"/><path d="M8 15l3-4 2 2 4-5"/></svg>
+            </div>
+            <h2>Painel de sell-in</h2>
+            <p>Aqui entra o que a Rocco faturou para a loja. O sell-out que você já abriu continua na outra aba, com o arquivo e os filtros do jeito que deixou.</p>
+          </div>
+        </section>
       </div>
     </main>
   </div>
@@ -354,6 +377,7 @@
   </div>
 
   <script src="brazil-map.js"></script>
-  <script src="app.js?v=20261106-paradas"></script>
+  <script src="app.js?v=20261106-novos3"></script>
+  <script src="sell-in/painel.js?v=20261106-abas"></script>
 </body>
 </html>

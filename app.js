@@ -397,6 +397,18 @@ function stoppedStores(curRows, prevRows) {
   return { n: list.length, fat, hadPrev, list };
 }
 
+function newStoresInPeriod(rows) {
+  const ids = new Set();
+  let fat = 0;
+  for (const r of rows) {
+    const id = storeId(r);
+    if (!state.newStoreIds.has(id)) continue;
+    if (!ids.has(id)) ids.add(id);
+    fat += r.fat;
+  }
+  return { n: ids.size, fat };
+}
+
 function aggregateBy(rows, field) {
   const map = new Map();
   for (const r of rows) {
@@ -516,11 +528,7 @@ function renderFilterBar() {
           <div class="menu-list">${listHtml}</div>
         </div>
       </div>`;
-  }).join("") + `
-    <button type="button" class="menu-btn novos-btn" data-toggle-novos aria-pressed="${state.novos ? "true" : "false"}" title="Lojas sem venda antes dos últimos 12 meses da base">
-      <span class="menu-k">Novos na base</span>
-      <span class="menu-v">${state.novos ? `desde ${esc(monthKeyLabel(state.newSince))}` : "Todos"}</span>
-    </button>`;
+  }).join("");
   $("btnClear").hidden = !hasActiveFilters();
   const hint = document.querySelector("#sec-visao .hint");
   if (hint) {
@@ -761,7 +769,7 @@ function drawDonut(canvas, slices, total) {
   canvas._donutHit = { cx, cy, r, ri, hits };
 }
 
-function renderKpis(curRows, prevRows, stopped) {
+function renderKpis(curRows, prevRows, stopped, novos) {
   const cur = sumRows(curRows);
   const prev = sumRows(prevRows);
   const win = windowFor(state.analysisYear);
@@ -804,6 +812,22 @@ function renderKpis(curRows, prevRows, stopped) {
     $("kpiStoppedSub").textContent = `${moneyFmt.format(stopped.fat)} no ano anterior`;
     card.classList.add("is-down");
     card.title = "Lojas com venda no ano anterior e zero agora. Clique para listar.";
+  }
+
+  const novosCard = $("kpiNovosCard");
+  if (novosCard) {
+    novosCard.disabled = false;
+    novosCard.setAttribute("aria-disabled", novos.n ? "false" : "true");
+    novosCard.setAttribute("aria-pressed", state.novos ? "true" : "false");
+    $("kpiNovos").textContent = numFmt.format(novos.n);
+    if (!novos.n) {
+      $("kpiNovosSub").textContent = "Nenhuma loja nova no recorte";
+      novosCard.title = "Nenhuma loja com primeira venda nos últimos 12 meses da base";
+    } else {
+      const since = state.newSince != null ? `desde ${monthKeyLabel(state.newSince)}` : "últimos 12 meses";
+      $("kpiNovosSub").textContent = `${moneyFmt.format(novos.fat)} · ${since}`;
+      novosCard.title = "Lojas com primeira venda nos últimos 12 meses da base. Clique para filtrar.";
+    }
   }
 }
 
@@ -1362,13 +1386,16 @@ function renderAll() {
   const prevRows = base.filter((r) => inWindow(r, prevWin));
   const stopped = stoppedStores(curRows, prevRows);
   if (state.paradas && !stopped.n) state.paradas = false;
+  const novosBase = filteredRows("novos").filter((r) => inWindow(r, win));
+  const novos = newStoresInPeriod(novosBase);
+  if (state.novos && !novos.n) state.novos = false;
 
   $("sideBase").textContent = `${state.fileName || "Base"} · por mês`;
   renderYearSwitch();
   renderFilterBar();
   renderChips();
   renderSideFilters();
-  renderKpis(curRows, prevRows, stopped);
+  renderKpis(curRows, prevRows, stopped, novos);
   renderTrend(base);
   renderDonut(curRows);
   renderUfMap(curRows, prevRows);
@@ -1408,6 +1435,7 @@ async function ingestText(text, fileName) {
     $("fileLabel").textContent = "Trocar CSV";
     $("fileMeta").textContent = state.fileName;
     $("error").hidden = true;
+    if (typeof showDashView === "function") showDashView("out", true);
     renderAll();
   } catch (err) {
     $("error").hidden = false;
@@ -1557,17 +1585,10 @@ function wire() {
 
     const goto = t.closest("[data-goto]");
     if (goto) {
+      if (typeof showDashView === "function") showDashView("out", true);
       document.querySelectorAll(".nav button").forEach((b) => b.classList.toggle("is-active", b === goto));
-      $(goto.getAttribute("data-goto"))?.scrollIntoView({ behavior: "smooth", block: "start" });
-      return;
-    }
-
-    const novosBtn = t.closest("[data-toggle-novos]");
-    if (novosBtn) {
-      state.novos = !state.novos;
-      state.openMenu = null;
-      pruneIncompatibleFilters();
-      renderAll();
+      const target = $(goto.getAttribute("data-goto"));
+      requestAnimationFrame(() => target?.scrollIntoView({ behavior: "smooth", block: "start" }));
       return;
     }
 
@@ -1575,8 +1596,20 @@ function wire() {
     if (stoppedBtn) {
       if (stoppedBtn.getAttribute("aria-disabled") === "true") return;
       state.paradas = !state.paradas;
+      if (state.paradas) state.novos = false;
       renderAll();
       if (state.paradas) $("lojaCard")?.scrollIntoView({ behavior: "smooth", block: "start" });
+      return;
+    }
+
+    const novosCard = t.closest("#kpiNovosCard");
+    if (novosCard) {
+      if (novosCard.getAttribute("aria-disabled") === "true") return;
+      state.novos = !state.novos;
+      if (state.novos) state.paradas = false;
+      pruneIncompatibleFilters();
+      renderAll();
+      if (state.novos) $("lojaCard")?.scrollIntoView({ behavior: "smooth", block: "start" });
       return;
     }
 
