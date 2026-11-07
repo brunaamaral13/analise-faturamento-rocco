@@ -13,7 +13,7 @@ const VIEW_COPY = {
   }
 };
 
-const sellIn = { fileName: "", text: "", rows: 0, headers: [] };
+const sellIn = { fileName: "", text: "", rows: 0, headers: [], unit: "linha" };
 
 function showDashView(which, keep) {
   const view = which === "in" ? "in" : "out";
@@ -61,18 +61,39 @@ function syncImportLabel() {
   meta.textContent = "Sell-out acumulado Rocco";
 }
 
+function cellText(value) {
+  return String(value ?? "").replace(/^\uFEFF/, "").trim();
+}
+
+function splitSellInLine(line) {
+  const split = typeof splitCsvLine === "function" ? splitCsvLine : (row) => row.split(";");
+  return split(String(line || ""));
+}
+
+function isClientHeader(value) {
+  return /^c[oó]d\.?\s*cliente$/i.test(cellText(value));
+}
+
 function countCsvRows(text) {
-  const lines = String(text || "").split(/\r?\n/).filter((line) => line.trim() !== "");
-  if (lines.length < 2) throw new Error("Arquivo sem dados.");
-  const split = typeof splitCsvLine === "function" ? splitCsvLine : (line) => line.split(";");
-  const headers = split(lines[0]).map((cell) => cell.trim()).filter(Boolean);
-  if (!headers.length) throw new Error("Cabeçalho vazio.");
+  const lines = String(text || "").replace(/^\uFEFF/, "").split(/\r?\n|\r/);
+  if (!lines.some((line) => cellText(line) !== "")) throw new Error("Arquivo sem dados.");
+  const table = lines.map(splitSellInLine);
+  let headerIdx = table.findIndex((cells) => cells.some(isClientHeader));
+  const unit = headerIdx >= 0 ? "cliente" : "linha";
+  if (headerIdx < 0) headerIdx = table.findIndex((cells) => cells.some((cell) => cellText(cell) !== ""));
+  if (headerIdx < 0) throw new Error("Arquivo sem dados.");
+  const headers = table[headerIdx].map(cellText);
+  if (!headers.some(Boolean)) throw new Error("Não encontrei o cabeçalho do sell-in.");
+  const codeCol = headers.findIndex(isClientHeader);
   let rows = 0;
-  for (let i = 1; i < lines.length; i++) {
-    if (split(lines[i]).some((cell) => String(cell).trim() !== "")) rows++;
+  for (let i = headerIdx + 1; i < table.length; i++) {
+    const cells = table[i];
+    if (codeCol >= 0) {
+      if (cellText(cells[codeCol]) !== "") rows++;
+    } else if (cells.some((cell) => cellText(cell) !== "")) rows++;
   }
   if (!rows) throw new Error("Nenhuma linha válida encontrada.");
-  return { headers, rows };
+  return { headers, rows, unit };
 }
 
 function showSellInFile() {
@@ -84,8 +105,11 @@ function showSellInFile() {
   if (!sellIn.fileName) return;
   if (title) title.textContent = sellIn.fileName;
   if (text) {
-    const linhas = sellIn.rows === 1 ? "1 linha" : `${sellIn.rows.toLocaleString("pt-BR")} linhas`;
-    text.textContent = `${linhas} importadas. A base de sell-out continua na outra aba.`;
+    const n = sellIn.rows.toLocaleString("pt-BR");
+    const linhas = sellIn.unit === "cliente"
+      ? (sellIn.rows === 1 ? "1 cliente importado" : `${n} clientes importados`)
+      : (sellIn.rows === 1 ? "1 linha importada" : `${n} linhas importadas`);
+    text.textContent = `${linhas}. A base de sell-out continua na outra aba.`;
   }
   if (button) button.textContent = "Trocar arquivo";
   syncImportLabel();
@@ -102,12 +126,13 @@ function readSellInFile(file) {
   const reader = new FileReader();
   reader.onload = () => {
     try {
-      const text = String(reader.result || "");
+      const text = textFromCsvBuffer(reader.result);
       const parsed = countCsvRows(text);
       sellIn.text = text;
       sellIn.fileName = file.name;
       sellIn.rows = parsed.rows;
       sellIn.headers = parsed.headers;
+      sellIn.unit = parsed.unit;
       showSellInFile();
     } catch (err) {
       if (error) {
@@ -127,7 +152,18 @@ function readSellInFile(file) {
       error.textContent = "Falha ao ler o arquivo. Tente novamente.";
     }
   };
-  reader.readAsText(file, "windows-1252");
+  reader.readAsArrayBuffer(file);
+}
+
+function textFromCsvBuffer(buffer) {
+  const bytes = new Uint8Array(buffer);
+  if (bytes.length >= 2 && bytes[0] === 0xFF && bytes[1] === 0xFE) return new TextDecoder("utf-16le").decode(bytes);
+  if (bytes.length >= 2 && bytes[0] === 0xFE && bytes[1] === 0xFF) return new TextDecoder("utf-16be").decode(bytes);
+  try {
+    return new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+  } catch (err) {
+    return new TextDecoder("windows-1252").decode(bytes);
+  }
 }
 
 document.getElementById("tabSellOut")?.addEventListener("click", () => showDashView("out"));
