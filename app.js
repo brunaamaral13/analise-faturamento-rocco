@@ -27,10 +27,11 @@ const state = {
   donutDim: "loja",
   search: "",
   isbnQuery: "",
+  titleQuery: "",
   books: [],
   stores: [],
-  sku: "",
-  skuDesc: "",
+  sku: new Set(),
+  skuDesc: new Map(),
   novos: false,
   paradas: false,
   newStoreIds: new Set(),
@@ -42,7 +43,8 @@ const state = {
   itemCategoria: "",
   sortItem: { key: "fat", dir: "desc" },
   sortGrupo: { key: "fat", dir: "desc" },
-  sortLoja: { key: "fat", dir: "desc" }
+  sortLoja: { key: "fat", dir: "desc" },
+  drawerLoja: null
 };
 
 const charts = { colorOf: new Map(), ufByKey: new Map(), hoverUf: null, hoverMonth: null, trendSeries: [] };
@@ -220,7 +222,15 @@ function scopeLabel() {
     parts.push(vals.length === 1 ? `${dim.label}: ${vals[0]}` : `${dim.label}: ${vals.length} selecionados`);
   }
   if (state.periodMonth != null) parts.push(`Mês: ${MONTHS[state.periodMonth]}`);
-  if (state.sku) parts.push(state.skuDesc ? `ISBN: ${state.sku} · ${state.skuDesc}` : `ISBN: ${state.sku}`);
+  if (state.sku.size) {
+    const skus = [...state.sku];
+    if (skus.length === 1) {
+      const desc = state.skuDesc.get(skus[0]);
+      parts.push(desc ? `ISBN: ${skus[0]} · ${desc}` : `ISBN: ${skus[0]}`);
+    } else {
+      parts.push(`ISBN: ${skus.length} títulos`);
+    }
+  }
   if (state.novos) parts.push(`Novos na base: desde ${monthKeyLabel(state.newSince)}`);
   return parts.join(" · ");
 }
@@ -283,6 +293,24 @@ function digitsOf(s) {
   return String(s || "").replace(/\D/g, "");
 }
 
+function formatCnpj(raw) {
+  const d = digitsOf(raw);
+  if (d.length !== 14) return raw ? String(raw) : "sem CNPJ";
+  return `${d.slice(0, 2)}.${d.slice(2, 5)}.${d.slice(5, 8)}/${d.slice(8, 12)}-${d.slice(12)}`;
+}
+
+function periodRangeLabel(win) {
+  if (!win) return "";
+  if (win.kind === "month") {
+    const name = MONTHS[win.m0] || "";
+    return `${name.charAt(0).toUpperCase()}${name.slice(1)}/${win.y}`;
+  }
+  const a = MONTHS[win.m0] || "";
+  const b = MONTHS[win.m1] || "";
+  if (win.m0 === win.m1) return `${a.charAt(0).toUpperCase()}${a.slice(1)}/${win.y}`;
+  return `${a.charAt(0).toUpperCase()}${a.slice(1)} a ${b}/${win.y}`;
+}
+
 function storeId(r) {
   return (r.cnpj || r.loja || "").trim() || r.loja;
 }
@@ -310,7 +338,7 @@ function filteredRows(except = null) {
   const f = state.filters;
   return state.rows.filter((r) => {
     if (state.novos && except !== "novos" && !state.newStoreIds.has(storeId(r))) return false;
-    if (except !== "sku" && state.sku && r.sku !== state.sku) return false;
+    if (except !== "sku" && state.sku.size && !state.sku.has(r.sku)) return false;
     for (const dim of DIMS) {
       if (except === dim.key) continue;
       const set = f[dim.key];
@@ -321,7 +349,7 @@ function filteredRows(except = null) {
 }
 
 function hasActiveFilters() {
-  if (state.periodMonth != null || state.search.trim() || state.isbnQuery.trim() || state.sku || state.novos || state.paradas) return true;
+  if (state.periodMonth != null || state.search.trim() || state.isbnQuery.trim() || state.titleQuery.trim() || state.sku.size || state.novos || state.paradas) return true;
   return DIMS.some((d) => state.filters[d.key].size);
 }
 
@@ -332,7 +360,13 @@ function activeFilterGroups() {
     if (values.length) groups.push({ key: dim.key, label: dim.label, values });
   }
   if (state.periodMonth != null) groups.push({ key: "mes", label: "Mês", values: [MONTHS[state.periodMonth]] });
-  if (state.sku) groups.push({ key: "sku", label: "ISBN", values: [state.skuDesc ? `${state.sku} · ${state.skuDesc}` : state.sku] });
+  if (state.sku.size) {
+    const values = [...state.sku].map((sku) => {
+      const desc = state.skuDesc.get(sku);
+      return desc ? `${sku} · ${desc}` : sku;
+    });
+    groups.push({ key: "sku", label: "ISBN", values });
+  }
   if (state.novos) groups.push({ key: "novos", label: "Novos na base", values: [`desde ${monthKeyLabel(state.newSince)}`] });
   if (state.paradas) groups.push({ key: "paradas", label: "Lojas paradas", values: ["zeraram neste período"] });
   return groups;
@@ -551,8 +585,13 @@ function renderChips() {
   if (state.periodMonth != null) {
     chips.push({ kind: "mes", label: `Mês: ${MONTHS[state.periodMonth]}` });
   }
-  if (state.sku) {
-    chips.push({ kind: "sku", label: state.skuDesc ? `ISBN: ${state.sku} · ${state.skuDesc}` : `ISBN: ${state.sku}` });
+  for (const sku of state.sku) {
+    const desc = state.skuDesc.get(sku);
+    chips.push({
+      kind: "sku",
+      value: sku,
+      label: desc ? `ISBN: ${sku} · ${desc}` : `ISBN: ${sku}`
+    });
   }
   if (state.novos) {
     chips.push({ kind: "novos", label: `Novos na base: desde ${monthKeyLabel(state.newSince)}` });
@@ -573,8 +612,13 @@ function removeChipFilter(chip) {
   if (chip.kind === "mes") {
     state.periodMonth = null;
   } else if (chip.kind === "sku") {
-    state.sku = "";
-    state.skuDesc = "";
+    if (chip.value) {
+      state.sku.delete(chip.value);
+      state.skuDesc.delete(chip.value);
+    } else {
+      state.sku.clear();
+      state.skuDesc.clear();
+    }
   } else if (chip.kind === "novos") {
     state.novos = false;
   } else if (chip.kind === "paradas") {
@@ -585,7 +629,10 @@ function removeChipFilter(chip) {
       state.itemGrupo = "";
       state.itemLoja = "";
     }
-    if (chip.dim === "loja" && state.itemLoja === chip.value) state.itemLoja = "";
+    if (chip.dim === "loja") {
+      if (state.itemLoja === chip.value) state.itemLoja = "";
+      if (state.drawerLoja === chip.value) state.drawerLoja = null;
+    }
     if (chip.dim === "categoria" && state.itemCategoria === chip.value) state.itemCategoria = "";
   }
   pruneIncompatibleFilters();
@@ -596,8 +643,8 @@ function clearDimFilter(dimKey) {
   if (dimKey === "mes") {
     state.periodMonth = null;
   } else if (dimKey === "sku") {
-    state.sku = "";
-    state.skuDesc = "";
+    state.sku.clear();
+    state.skuDesc.clear();
   } else if (dimKey === "novos") {
     state.novos = false;
   } else if (dimKey === "paradas") {
@@ -608,7 +655,10 @@ function clearDimFilter(dimKey) {
       state.itemGrupo = "";
       state.itemLoja = "";
     }
-    if (dimKey === "loja") state.itemLoja = "";
+    if (dimKey === "loja") {
+      state.itemLoja = "";
+      state.drawerLoja = null;
+    }
     if (dimKey === "categoria") state.itemCategoria = "";
   }
   pruneIncompatibleFilters();
@@ -1119,8 +1169,10 @@ function renderRankings(curRows, prevRows, stopped) {
       <td class="num">${numFmt.format(g.vol)}</td>
       <td class="num ${g.pctVol != null && g.pctVol < 0 ? "is-neg" : "is-pos"}">${g.pctVol == null ? "—" : pctFmt.format(g.pctVol)}</td>
     </tr>`).join("") || `<tr><td colspan="7" class="empty-row">Nenhum grupo neste recorte.</td></tr>`;
-  $("lojaBody").innerHTML = lojasShown.map((l, i) => state.paradas
-    ? `<tr>
+  $("lojaBody").innerHTML = lojasShown.map((l, i) => {
+    const focus = (state.drawerLoja === l.key || (state.filters.loja.size === 1 && state.filters.loja.has(l.key))) ? " is-focus" : "";
+    return state.paradas
+      ? `<tr class="${focus.trim()}" data-pick-loja="${i}">
       <td class="col-pos">${i + 1}</td>
       <td><button type="button" class="linkish" data-pick-loja="${i}">${esc(l.key)}</button></td>
       <td>${esc(l.grupo)}</td>
@@ -1129,7 +1181,7 @@ function renderRankings(curRows, prevRows, stopped) {
       <td class="num">${moneyFmt.format(l.fatPrev)}</td>
       <td class="num ${l.pct != null && l.pct < 0 ? "is-neg" : "is-pos"}">${l.pct == null ? "—" : pctFmt.format(l.pct)}</td>
     </tr>`
-    : `<tr>
+      : `<tr class="${focus.trim()}" data-pick-loja="${i}">
       <td class="col-pos">${i + 1}</td>
       <td><button type="button" class="linkish" data-pick-loja="${i}">${esc(l.key)}</button></td>
       <td>${esc(l.grupo)}</td>
@@ -1138,8 +1190,8 @@ function renderRankings(curRows, prevRows, stopped) {
       <td class="num ${l.pct != null && l.pct < 0 ? "is-neg" : "is-pos"}">${l.pct == null ? "—" : pctFmt.format(l.pct)}</td>
       <td class="num">${numFmt.format(l.vol)}</td>
       <td class="num ${l.pctVol != null && l.pctVol < 0 ? "is-neg" : "is-pos"}">${l.pctVol == null ? "—" : pctFmt.format(l.pctVol)}</td>
-    </tr>`
-  ).join("") || `<tr><td colspan="${state.paradas ? 7 : 8}" class="empty-row">${state.paradas ? "Nenhuma loja parada neste recorte." : "Nenhuma loja neste recorte."}</td></tr>`;
+    </tr>`;
+  }).join("") || `<tr><td colspan="${state.paradas ? 7 : 8}" class="empty-row">${state.paradas ? "Nenhuma loja parada neste recorte." : "Nenhuma loja neste recorte."}</td></tr>`;
 }
 
 function ufTrendColor(row) {
@@ -1290,9 +1342,24 @@ function buildLookups(rows) {
   for (const r of rows) {
     let book = books.get(r.sku);
     if (!book) {
-      book = { sku: r.sku, desc: r.desc || "", cat: r.cat || "", digits: digitsOf(r.sku), lojas: new Set(), ids: new Set(), vends: new Set(), grupos: new Set(), ufs: new Set(), cats: new Set() };
+      book = {
+        sku: r.sku,
+        desc: r.desc || "",
+        descNorm: norm(r.desc || ""),
+        cat: r.cat || "",
+        digits: digitsOf(r.sku),
+        lojas: new Set(),
+        ids: new Set(),
+        vends: new Set(),
+        grupos: new Set(),
+        ufs: new Set(),
+        cats: new Set()
+      };
       books.set(r.sku, book);
-    } else if (!book.desc && r.desc) book.desc = r.desc;
+    } else if (!book.desc && r.desc) {
+      book.desc = r.desc;
+      book.descNorm = norm(r.desc);
+    }
     book.lojas.add(r.loja);
     book.ids.add(storeId(r));
     book.vends.add(r.vend);
@@ -1323,7 +1390,13 @@ function storeInScope(store) {
   if (!hitsFilter(store.grupos, f.grupo)) return false;
   if (!hitsFilter(store.ufs, f.uf)) return false;
   if (!hitsFilter(store.cats, f.categoria)) return false;
-  if (state.sku && !store.skus.has(state.sku)) return false;
+  if (state.sku.size) {
+    let ok = false;
+    for (const sku of state.sku) {
+      if (store.skus.has(sku)) { ok = true; break; }
+    }
+    if (!ok) return false;
+  }
   if (state.novos && !state.newStoreIds.has(store.id)) return false;
   return true;
 }
@@ -1374,6 +1447,7 @@ function renderStoreSearch() {
 function renderIsbnSearch() {
   const box = $("isbnHit");
   const input = $("qIsbn");
+  if (!box || !input) return;
   const q = state.isbnQuery.trim();
   const qDigits = digitsOf(q);
   if (!q || !state.meta) { box.hidden = true; box.innerHTML = ""; input.setAttribute("aria-expanded", "false"); return; }
@@ -1395,35 +1469,291 @@ function renderIsbnSearch() {
   box.hidden = false;
   input.setAttribute("aria-expanded", "true");
   state.menuOptions.searchIsbn = top;
+  const picked = state.sku.size;
   box.innerHTML = top.length
-    ? top.map((r, i) => `<button type="button" data-search-isbn="${i}"><b>${esc(r.desc || "Sem título")}</b><small>ISBN ${esc(r.sku)}${r.cat ? ` · ${esc(r.cat)}` : ""}</small></button>`).join("")
+    ? `${top.map((r, i) => {
+        const on = state.sku.has(r.sku);
+        return `<button type="button" class="${on ? "is-on" : ""}" data-search-isbn="${i}" aria-pressed="${on}"><b>${esc(r.desc || "Sem título")}</b><small>ISBN ${esc(r.sku)}${r.cat ? ` · ${esc(r.cat)}` : ""}${on ? " · selecionado" : ""}</small></button>`;
+      }).join("")}${picked ? `<p class="search-more">${picked === 1 ? "1 título selecionado" : `${picked} títulos selecionados`} · clique para marcar/desmarcar</p>` : `<p class="search-more">Clique para selecionar um ou mais ISBNs</p>`}`
     : `<p class="search-more">Nenhum ISBN para “${esc(q)}”.</p>`;
+}
+
+function renderTitleSearch() {
+  const box = $("titleHit");
+  const input = $("qTitle");
+  if (!box || !input) return;
+  const q = state.titleQuery.trim();
+  if (!q || !state.meta) { box.hidden = true; box.innerHTML = ""; input.setAttribute("aria-expanded", "false"); return; }
+  const nq = norm(q);
+  if (nq.length < 2) {
+    box.hidden = false;
+    input.setAttribute("aria-expanded", "true");
+    state.menuOptions.searchTitle = [];
+    box.innerHTML = `<p class="search-more">Digite ao menos 2 letras do título.</p>`;
+    return;
+  }
+  const hits = [];
+  for (const book of state.books) {
+    if (!book.descNorm || !bookInScope(book)) continue;
+    if (!book.descNorm.includes(nq)) continue;
+    const exact = book.descNorm === nq ? 0 : book.descNorm.startsWith(nq) ? 1 : 2;
+    hits.push({ book, exact });
+  }
+  hits.sort((a, b) => a.exact - b.exact || String(a.book.desc || "").localeCompare(String(b.book.desc || ""), "pt-BR"));
+  const top = hits.slice(0, 8).map((h) => h.book);
+  box.hidden = false;
+  input.setAttribute("aria-expanded", "true");
+  state.menuOptions.searchTitle = top;
+  const picked = state.sku.size;
+  box.innerHTML = top.length
+    ? `${top.map((r, i) => {
+        const on = state.sku.has(r.sku);
+        return `<button type="button" class="${on ? "is-on" : ""}" data-search-title="${i}" aria-pressed="${on}"><b>${esc(r.desc || "Sem título")}</b><small>ISBN ${esc(r.sku)}${r.cat ? ` · ${esc(r.cat)}` : ""}${on ? " · selecionado" : ""}</small></button>`;
+      }).join("")}${picked ? `<p class="search-more">${picked === 1 ? "1 título selecionado" : `${picked} títulos selecionados`} · clique para marcar/desmarcar</p>` : `<p class="search-more">Clique para selecionar um ou mais títulos</p>`}`
+    : `<p class="search-more">Nenhum título para “${esc(q)}”.</p>`;
 }
 
 function renderSearch() {
   renderStoreSearch();
   renderIsbnSearch();
+  renderTitleSearch();
 }
 
-function applyIsbn(book) {
+function toggleSku(book, { keepSearch = true, focusId = "" } = {}) {
   if (!book?.sku) return;
-  state.sku = book.sku;
-  state.skuDesc = book.desc || "";
-  state.isbnQuery = "";
-  $("qIsbn").value = "";
+  if (state.sku.has(book.sku)) {
+    state.sku.delete(book.sku);
+    state.skuDesc.delete(book.sku);
+  } else {
+    state.sku.add(book.sku);
+    state.skuDesc.set(book.sku, book.desc || "");
+  }
+  if (!keepSearch) {
+    state.isbnQuery = "";
+    state.titleQuery = "";
+    if ($("qIsbn")) $("qIsbn").value = "";
+    if ($("qTitle")) $("qTitle").value = "";
+  }
   pruneIncompatibleFilters();
   renderAll();
+  if (keepSearch && focusId) {
+    const input = $(focusId);
+    if (input) {
+      input.focus();
+      const val = input.value;
+      input.setSelectionRange(val.length, val.length);
+    }
+  }
 }
 
-function applyLoja(loja) {
+function applyIsbn(book, focusId = "") {
+  toggleSku(book, { keepSearch: true, focusId });
+}
+
+function applyLoja(loja, openDrawer = true) {
   if (!loja) return;
-  state.filters.loja.clear();
-  state.filters.loja.add(loja);
-  state.itemLoja = loja;
+  const active = state.filters.loja.size === 1 && state.filters.loja.has(loja);
+  if (active) {
+    state.filters.loja.clear();
+    if (state.itemLoja === loja) state.itemLoja = "";
+    state.drawerLoja = null;
+  } else {
+    state.filters.loja.clear();
+    state.filters.loja.add(loja);
+    state.itemLoja = loja;
+    if (openDrawer) state.drawerLoja = loja;
+  }
   state.search = "";
   $("q").value = "";
   pruneIncompatibleFilters();
   renderAll();
+}
+
+function closeLojaDrawer() {
+  if (!state.drawerLoja) return;
+  state.drawerLoja = null;
+  renderAll();
+}
+
+function storeProfile(loja) {
+  const rows = state.rows.filter((r) => r.loja === loja);
+  if (!rows.length) return null;
+  let best = rows[0];
+  const cnpjCount = new Map();
+  for (const r of rows) {
+    if (r.key >= best.key) best = r;
+    if (r.cnpj) cnpjCount.set(r.cnpj, (cnpjCount.get(r.cnpj) || 0) + 1);
+  }
+  let cnpj = best.cnpj || "";
+  let cnpjN = 0;
+  for (const [value, n] of cnpjCount) {
+    if (n > cnpjN) { cnpj = value; cnpjN = n; }
+  }
+  return {
+    loja: best.loja,
+    grupo: best.grupo,
+    vend: best.vend,
+    uf: best.uf,
+    cidade: best.cidade || "",
+    cnpj
+  };
+}
+
+function drawerScopedRows(loja) {
+  return state.rows.filter((r) => {
+    if (r.loja !== loja) return false;
+    if (state.novos && !state.newStoreIds.has(storeId(r))) return false;
+    if (state.sku.size && !state.sku.has(r.sku)) return false;
+    for (const dim of DIMS) {
+      if (dim.key === "loja") continue;
+      const set = state.filters[dim.key];
+      if (set.size && !set.has(r[dim.field])) return false;
+    }
+    return true;
+  });
+}
+
+function monthSeriesFromRows(rows, year) {
+  const series = Array(12).fill(0);
+  const vols = Array(12).fill(0);
+  for (const r of rows) {
+    if (r.y !== year) continue;
+    series[r.m] += r.fat;
+    vols[r.m] += r.vol;
+  }
+  return { fat: series, vol: vols };
+}
+
+function drawerScopeNote() {
+  const parts = [];
+  if (state.sku.size === 1) {
+    const sku = [...state.sku][0];
+    parts.push(state.skuDesc.get(sku) || `ISBN ${sku}`);
+  } else if (state.sku.size > 1) {
+    parts.push(`${state.sku.size} títulos`);
+  }
+  for (const dim of DIMS) {
+    if (dim.key === "loja") continue;
+    const values = [...state.filters[dim.key]];
+    if (!values.length) continue;
+    parts.push(values.length === 1 ? `${dim.label}: ${values[0]}` : `${dim.label}: ${values.length}`);
+  }
+  if (state.novos) parts.push(`Novos desde ${monthKeyLabel(state.newSince)}`);
+  if (!parts.length) return "Sell-out da loja no período.";
+  if (state.sku.size) {
+    const label = state.sku.size === 1 ? "Evolução do título nesta loja" : "Evolução dos títulos nesta loja";
+    return `${label}${parts.length > 1 ? ` · ${parts.slice(1).join(" · ")}` : ""}.`;
+  }
+  return `Sell-out da loja no recorte · ${parts.join(" · ")}.`;
+}
+
+function renderDrawer() {
+  const drawer = $("drawer");
+  if (!drawer) return;
+  if (document.body.dataset.view === "in" || !state.drawerLoja || !state.meta) {
+    drawer.classList.remove("is-in");
+    drawer.setAttribute("aria-hidden", "true");
+    return;
+  }
+  const profile = storeProfile(state.drawerLoja);
+  if (!profile) {
+    state.drawerLoja = null;
+    drawer.classList.remove("is-in");
+    drawer.setAttribute("aria-hidden", "true");
+    return;
+  }
+  const scoped = drawerScopedRows(profile.loja);
+  const year = state.analysisYear;
+  const prev = year - 1;
+  const win = windowFor(year);
+  const curSeries = monthSeriesFromRows(scoped, year);
+  const prevSeries = monthSeriesFromRows(scoped, prev);
+  let fat = 0, vol = 0, fatPrev = 0, volPrev = 0;
+  for (let m = win.m0; m <= win.m1; m++) {
+    fat += curSeries.fat[m] || 0;
+    vol += curSeries.vol[m] || 0;
+    fatPrev += prevSeries.fat[m] || 0;
+    volPrev += prevSeries.vol[m] || 0;
+  }
+  const pct = pctChange(fat, fatPrev);
+  const pctVol = pctChange(vol, volPrev);
+  const revClass = pct == null ? "" : pct > 0.005 ? " is-up" : pct < -0.005 ? " is-down" : "";
+  const max = Math.max(1, ...curSeries.fat, ...prevSeries.fat);
+  const points = (arr, stroke) => {
+    const cmds = arr.map((value, index) => {
+      const x = (index / 11) * 360;
+      const y = 68 - (Math.max(0, value) / max) * 60;
+      return `${index ? "L" : "M"}${x.toFixed(1)} ${y.toFixed(1)}`;
+    }).join(" ");
+    return `<path d="${cmds}" stroke="${stroke}"/>`;
+  };
+  const lastMonth = state.meta.lastMonth[year] ?? 11;
+  const rows = MONTHS_SHORT.map((label, index) => {
+    const a = curSeries.fat[index] || 0;
+    const b = prevSeries.fat[index] || 0;
+    const mPct = pctChange(a, b);
+    const muted = index > lastMonth ? ` style="color:#b0b4be"` : "";
+    return `<tr${muted}><td>${label}</td><td>${moneyFmt.format(b)}</td><td>${moneyFmt.format(a)}</td><td>${mPct == null ? "—" : pctFmt.format(mPct)}</td></tr>`;
+  }).join("");
+  const badges = [];
+  if (pct != null && pct > 0.005) badges.push(`<span class="pill up">cresceu</span>`);
+  else if (pct != null && pct < -0.005) badges.push(`<span class="pill down">caiu</span>`);
+  else badges.push(`<span class="pill">estável</span>`);
+  const tags = [profile.grupo, profile.vend, profile.uf, profile.cidade].filter(Boolean);
+  let bookBlock = "";
+  if (state.sku.size === 1) {
+    const sku = [...state.sku][0];
+    bookBlock = `<div class="book-callout">
+        <span>Título filtrado</span>
+        <b>${esc(state.skuDesc.get(sku) || "Sem título")}</b>
+        <p>ISBN ${esc(sku)}</p>
+      </div>`;
+  } else if (state.sku.size > 1) {
+    const list = [...state.sku].slice(0, 4).map((sku) => {
+      const desc = state.skuDesc.get(sku) || "Sem título";
+      return `<li><b>${esc(desc)}</b><small>ISBN ${esc(sku)}</small></li>`;
+    }).join("");
+    const more = state.sku.size > 4 ? `<p>+${state.sku.size - 4} títulos</p>` : "";
+    bookBlock = `<div class="book-callout">
+        <span>${state.sku.size} títulos filtrados</span>
+        <ul class="book-list">${list}</ul>
+        ${more}
+      </div>`;
+  }
+  const fatLabel = state.sku.size
+    ? `Faturamento do${state.sku.size > 1 ? "s títulos" : " título"} · ${periodRangeLabel(win)}`
+    : `Faturamento · ${periodRangeLabel(win)}`;
+  const volLabel = state.sku.size
+    ? `Volume do${state.sku.size > 1 ? "s títulos" : " título"} · ${numFmt.format(vol)} un`
+    : `Volume · ${numFmt.format(vol)} un`;
+  $("drawerBody").innerHTML = `
+    <div class="drawer-top">
+      <h3>${esc(profile.loja)}</h3>
+      <button type="button" class="x" id="closeDrawer" aria-label="Fechar">×</button>
+    </div>
+    <div class="meta-grid">
+      ${tags.map((t) => `<span>${esc(t)}</span>`).join("")}
+      <span class="cnpj">CNPJ ${esc(formatCnpj(profile.cnpj))}</span>
+    </div>
+    ${bookBlock}
+    <div class="rev-callout${revClass}">
+      <span>${esc(fatLabel)}</span>
+      <b>${moneyFmtDec.format(fat)}</b>
+      <p>${prev}: ${moneyFmtDec.format(fatPrev)} · ${pct == null ? "—" : pctFmt.format(pct)}</p>
+    </div>
+    <div class="vol-callout">
+      <span>${esc(volLabel)}</span>
+      <p>${prev}: ${numFmt.format(volPrev)} un · ${pctVol == null ? "—" : pctFmt.format(pctVol)}</p>
+    </div>
+    <div class="badges">${badges.join("")}</div>
+    <svg class="spark" viewBox="0 0 360 72" aria-hidden="true">${points(prevSeries.fat, "#7d92ab")}${points(curSeries.fat, "#b5191a")}</svg>
+    <table class="month-table">
+      <thead><tr><th>Mês</th><th>${prev}</th><th>${year}</th><th>Var.</th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table>
+    <p class="cmeta" style="margin-top:10px">${esc(drawerScopeNote())}</p>`;
+  drawer.classList.add("is-in");
+  drawer.setAttribute("aria-hidden", "false");
 }
 
 function renderAll() {
@@ -1453,6 +1783,7 @@ function renderAll() {
   renderUfMap(curRows, prevRows);
   renderItems(curRows);
   renderRankings(curRows, prevRows, stopped);
+  renderDrawer();
   renderSearch();
 }
 
@@ -1471,19 +1802,25 @@ async function ingestText(text, fileName) {
     state.menuOptions = {};
     state.filters = { vendedor: new Set(), grupo: new Set(), loja: new Set(), uf: new Set(), categoria: new Set() };
     state.periodMonth = null;
-    state.sku = "";
-    state.skuDesc = "";
+    state.sku = new Set();
+    state.skuDesc = new Map();
     state.novos = false;
     state.paradas = false;
     state.isbnQuery = "";
+    state.titleQuery = "";
     state.itemGrupo = "";
     state.itemLoja = "";
     state.itemCategoria = "";
+    state.drawerLoja = null;
     $("empty").hidden = true;
     $("dash").hidden = false;
     $("q").disabled = false;
     $("qIsbn").disabled = false;
     $("qIsbn").value = "";
+    if ($("qTitle")) {
+      $("qTitle").disabled = false;
+      $("qTitle").value = "";
+    }
     $("fileLabel").textContent = "Trocar CSV";
     $("fileMeta").textContent = state.fileName;
     $("error").hidden = true;
@@ -1585,7 +1922,10 @@ function toggleFilter(dim, value, on) {
     state.itemGrupo = "";
     state.itemLoja = "";
   }
-  if (dim === "loja" && !on && state.itemLoja === value) state.itemLoja = "";
+  if (dim === "loja" && !on) {
+    if (state.itemLoja === value) state.itemLoja = "";
+    if (state.drawerLoja === value) state.drawerLoja = null;
+  }
   if (dim === "categoria" && !on && state.itemCategoria === value) state.itemCategoria = "";
   pruneIncompatibleFilters();
   renderAll();
@@ -1597,14 +1937,17 @@ function clearFilters() {
   state.itemGrupo = "";
   state.itemLoja = "";
   state.itemCategoria = "";
+  state.drawerLoja = null;
   state.search = "";
   state.isbnQuery = "";
-  state.sku = "";
-  state.skuDesc = "";
+  state.titleQuery = "";
+  state.sku = new Set();
+  state.skuDesc = new Map();
   state.novos = false;
   state.paradas = false;
   $("q").value = "";
   $("qIsbn").value = "";
+  if ($("qTitle")) $("qTitle").value = "";
   renderAll();
 }
 
@@ -1763,14 +2106,7 @@ function wire() {
     const pickLoja = t.closest("[data-pick-loja]");
     if (pickLoja) {
       const l = state.menuOptions.pickLoja?.[Number(pickLoja.getAttribute("data-pick-loja"))];
-      if (l) {
-        state.filters.loja.clear();
-        state.filters.loja.add(l);
-        state.itemLoja = l;
-        pruneIncompatibleFilters();
-        renderAll();
-        $("sec-itens").scrollIntoView({ behavior: "smooth", block: "start" });
-      }
+      if (l) applyLoja(l, true);
       return;
     }
 
@@ -1794,7 +2130,15 @@ function wire() {
 
     const searchIsbn = t.closest("[data-search-isbn]");
     if (searchIsbn) {
-      applyIsbn(state.menuOptions.searchIsbn?.[Number(searchIsbn.getAttribute("data-search-isbn"))]);
+      e.preventDefault();
+      applyIsbn(state.menuOptions.searchIsbn?.[Number(searchIsbn.getAttribute("data-search-isbn"))], "qIsbn");
+      return;
+    }
+
+    const searchTitle = t.closest("[data-search-title]");
+    if (searchTitle) {
+      e.preventDefault();
+      applyIsbn(state.menuOptions.searchTitle?.[Number(searchTitle.getAttribute("data-search-title"))], "qTitle");
       return;
     }
 
@@ -1979,7 +2323,22 @@ function wire() {
     }
     if (e.key !== "Enter") return;
     e.preventDefault();
-    applyIsbn(state.menuOptions.searchIsbn?.[0]);
+    applyIsbn(state.menuOptions.searchIsbn?.[0], "qIsbn");
+  });
+  $("qTitle")?.addEventListener("input", (e) => {
+    state.titleQuery = e.target.value;
+    renderTitleSearch();
+  });
+  $("qTitle")?.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") {
+      state.titleQuery = "";
+      $("qTitle").value = "";
+      renderTitleSearch();
+      return;
+    }
+    if (e.key !== "Enter") return;
+    e.preventDefault();
+    applyIsbn(state.menuOptions.searchTitle?.[0], "qTitle");
   });
 
   const trend = $("trend");
@@ -2009,6 +2368,20 @@ function wire() {
     if (!spot) return;
     state.periodMonth = state.periodMonth === spot.index ? null : spot.index;
     renderAll();
+  });
+
+  $("drawer")?.addEventListener("click", (e) => {
+    if (e.target.closest("#closeDrawer")) closeLojaDrawer();
+  });
+
+  document.addEventListener("keydown", (e) => {
+    if (e.key !== "Escape") return;
+    if (state.openMenu) {
+      state.openMenu = null;
+      renderFilterBar();
+      return;
+    }
+    if (state.drawerLoja) closeLojaDrawer();
   });
 
   window.addEventListener("resize", () => {

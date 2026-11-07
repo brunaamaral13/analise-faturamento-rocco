@@ -83,6 +83,13 @@ function showDashView(which, keep) {
   if (location.hash !== hash) history.replaceState(null, "", hash);
   syncImportLabel();
   syncSideBase(view);
+  const drawer = document.getElementById("drawer");
+  if (view === "in" && drawer) {
+    drawer.classList.remove("is-in");
+    drawer.setAttribute("aria-hidden", "true");
+  } else if (view === "out" && typeof renderDrawer === "function") {
+    renderDrawer();
+  }
   if (changed && view === "out" && !keep && typeof renderAll === "function" && typeof state !== "undefined" && state.meta) {
     requestAnimationFrame(() => renderAll());
   }
