@@ -456,6 +456,10 @@ function renderSideFilters() {
   const list = $("sideFilterList");
   const clearBtn = $("btnSideClear");
   const clearAllBtn = $("btnSideClearAll");
+  if (document.body.dataset.view === "in") {
+    box.hidden = true;
+    return;
+  }
   if (!state.meta) {
     box.hidden = true;
     return;

@@ -13,7 +13,7 @@ const VIEW_COPY = {
   }
 };
 
-const sellIn = { fileName: "", text: "", rows: 0, headers: [], unit: "linha" };
+const sellIn = { fileName: "", text: "", rows: 0, headers: [], unit: "linha", buffer: null, summary: "" };
 
 function showDashView(which, keep) {
   const view = which === "in" ? "in" : "out";
@@ -22,9 +22,13 @@ function showDashView(which, keep) {
   const out = document.getElementById("viewOut");
   const incoming = document.getElementById("viewIn");
   const tools = document.getElementById("outTools");
+  const navOut = document.getElementById("navOut");
+  const navIn = document.getElementById("navIn");
   if (out) out.hidden = view !== "out";
   if (incoming) incoming.hidden = view !== "in";
   if (tools) tools.hidden = view !== "out";
+  if (navOut) navOut.hidden = view !== "out";
+  if (navIn) navIn.hidden = view !== "in";
   document.getElementById("tabSellOut")?.setAttribute("aria-pressed", String(view === "out"));
   document.getElementById("tabSellIn")?.setAttribute("aria-pressed", String(view === "in"));
   const text = VIEW_COPY[view];
@@ -37,9 +41,78 @@ function showDashView(which, keep) {
   const hash = view === "in" ? "#sell-in" : "#sell-out";
   if (location.hash !== hash) history.replaceState(null, "", hash);
   syncImportLabel();
+  syncSideBase(view);
   if (changed && view === "out" && !keep && typeof renderAll === "function" && typeof state !== "undefined" && state.meta) {
     requestAnimationFrame(() => renderAll());
   }
+}
+
+function syncSideBase(view) {
+  const base = document.getElementById("sideBase");
+  if (!base) return;
+  if (view === "in") {
+    base.textContent = sellIn.summary || (sellIn.fileName ? "Lendo o sell-in…" : "Nenhuma base de sell-in");
+    if (typeof renderSideFilters === "function") renderSideFilters();
+    return;
+  }
+  if (typeof state !== "undefined" && state.meta) {
+    base.textContent = `${state.fileName || "Base"} · por mês`;
+  } else {
+    base.textContent = "Nenhuma base carregada";
+  }
+  if (typeof renderSideFilters === "function") renderSideFilters();
+}
+
+function setSellInLoading(on) {
+  const loading = document.getElementById("loading");
+  const loadingText = document.getElementById("loadingText");
+  if (loading) loading.hidden = !on;
+  if (on && loadingText) loadingText.textContent = "Lendo o sell-in…";
+}
+
+function revealSellIn() {
+  const frame = document.getElementById("sellInFrame");
+  const empty = document.getElementById("sellInEmpty");
+  if (empty) empty.hidden = true;
+  if (frame) frame.hidden = false;
+}
+
+function showSellInError(message) {
+  const frame = document.getElementById("sellInFrame");
+  const empty = document.getElementById("sellInEmpty");
+  const error = document.getElementById("errorIn");
+  if (frame) frame.hidden = true;
+  if (empty) empty.hidden = false;
+  if (error) {
+    error.hidden = false;
+    error.textContent = message || "Não foi possível ler o arquivo.";
+  }
+  setSellInLoading(false);
+}
+
+function mountSellIn() {
+  const frame = document.getElementById("sellInFrame");
+  if (!frame || !sellIn.buffer) return;
+  const send = () => {
+    frame.contentWindow?.postMessage({
+      type: "sell-in-file",
+      name: sellIn.fileName,
+      buffer: sellIn.buffer
+    }, location.origin);
+  };
+  if (!frame.getAttribute("src")) {
+    frame.addEventListener("load", () => {
+      frame.dataset.ready = "1";
+      send();
+    }, { once: true });
+    frame.src = "sell-in/dashboard.html?embed=1";
+    return;
+  }
+  if (frame.dataset.ready === "1") send();
+  else frame.addEventListener("load", () => {
+    frame.dataset.ready = "1";
+    send();
+  }, { once: true });
 }
 
 function syncImportLabel() {
@@ -117,40 +190,33 @@ function showSellInFile() {
 
 function readSellInFile(file) {
   if (typeof state !== "undefined" && !state.seller) return;
-  const loading = document.getElementById("loading");
-  const loadingText = document.getElementById("loadingText");
   const error = document.getElementById("errorIn");
-  if (loading) loading.hidden = false;
-  if (loadingText) loadingText.textContent = "Lendo o sell-in…";
   if (error) error.hidden = true;
+  setSellInLoading(true);
   const reader = new FileReader();
   reader.onload = () => {
     try {
       const text = textFromCsvBuffer(reader.result);
       const parsed = countCsvRows(text);
       sellIn.text = text;
+      sellIn.buffer = reader.result;
       sellIn.fileName = file.name;
       sellIn.rows = parsed.rows;
       sellIn.headers = parsed.headers;
       sellIn.unit = parsed.unit;
+      sellIn.summary = "";
       showSellInFile();
+      syncSideBase("in");
+      mountSellIn();
     } catch (err) {
-      if (error) {
-        error.hidden = false;
-        error.textContent = err.message || "Não foi possível ler o arquivo.";
-      }
+      showSellInError(err.message || "Não foi possível ler o arquivo.");
     } finally {
-      if (loading) loading.hidden = true;
       const input = document.getElementById("fileIn");
       if (input) input.value = "";
     }
   };
   reader.onerror = () => {
-    if (loading) loading.hidden = true;
-    if (error) {
-      error.hidden = false;
-      error.textContent = "Falha ao ler o arquivo. Tente novamente.";
-    }
+    showSellInError("Falha ao ler o arquivo. Tente novamente.");
   };
   reader.readAsArrayBuffer(file);
 }
@@ -176,6 +242,27 @@ document.getElementById("fileIn")?.addEventListener("change", () => {
 document.getElementById("dropIn")?.addEventListener("drop", (event) => {
   const file = event.dataTransfer?.files?.[0];
   if (file) readSellInFile(file);
+});
+document.getElementById("navIn")?.addEventListener("click", (event) => {
+  const button = event.target.closest("[data-goto-in]");
+  if (!button) return;
+  const id = button.getAttribute("data-goto-in");
+  document.querySelectorAll("#navIn button").forEach((item) => {
+    item.classList.toggle("is-active", item === button);
+  });
+  document.getElementById("sellInFrame")?.contentWindow?.postMessage({ type: "sell-in-goto", id }, location.origin);
+});
+
+window.addEventListener("message", (event) => {
+  if (event.origin !== location.origin) return;
+  const data = event.data || {};
+  if (data.type === "sell-in-ready") {
+    sellIn.summary = data.summary || sellIn.summary;
+    setSellInLoading(false);
+    revealSellIn();
+    if (document.body.dataset.view === "in") syncSideBase("in");
+  }
+  if (data.type === "sell-in-error") showSellInError(data.message);
 });
 document.addEventListener("drop", (event) => {
   if (document.body.dataset.view !== "in") return;

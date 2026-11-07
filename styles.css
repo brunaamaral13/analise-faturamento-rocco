@@ -336,6 +336,13 @@ h1, h2, p { margin: 0; }
 }
 .view-tabs button[aria-pressed="true"] { background: var(--red); color: #fff; }
 #viewOut { display: flex; flex-direction: column; gap: 32px; }
+#sellInFrame {
+  width: 100%;
+  min-height: calc(100vh - 120px);
+  border: 0;
+  display: block;
+  background: transparent;
+}
 .year-switch { display: flex; gap: 6px; min-height: 38px; }
 .year-switch button {
   border: 1px solid var(--line);
