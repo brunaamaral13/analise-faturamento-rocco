@@ -1519,6 +1519,37 @@ function renderSearch() {
   renderTitleSearch();
 }
 
+function closeSearchMenus() {
+  let changed = false;
+  if (state.search) {
+    state.search = "";
+    if ($("q")) $("q").value = "";
+    changed = true;
+  }
+  if (state.isbnQuery) {
+    state.isbnQuery = "";
+    if ($("qIsbn")) $("qIsbn").value = "";
+    changed = true;
+  }
+  if (state.titleQuery) {
+    state.titleQuery = "";
+    if ($("qTitle")) $("qTitle").value = "";
+    changed = true;
+  }
+  if (!changed) {
+    ["searchHit", "isbnHit", "titleHit"].forEach((id) => {
+      const box = $(id);
+      if (box && !box.hidden) {
+        box.hidden = true;
+        box.innerHTML = "";
+      }
+    });
+    ["q", "qIsbn", "qTitle"].forEach((id) => $(id)?.setAttribute("aria-expanded", "false"));
+    return;
+  }
+  renderSearch();
+}
+
 function toggleSku(book, { keepSearch = true, focusId = "" } = {}) {
   if (!book?.sku) return;
   if (state.sku.has(book.sku)) {
@@ -1980,6 +2011,8 @@ function wire() {
   document.addEventListener("click", (e) => {
     const t = e.target;
     if (!(t instanceof Element)) return;
+
+    if (!t.closest(".search-wrap")) closeSearchMenus();
 
     const goto = t.closest("[data-goto]");
     if (goto) {
