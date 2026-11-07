@@ -9,8 +9,10 @@ function deliverSellIn(buffer, name) {
     requestAnimationFrame(() => requestAnimationFrame(() => {
       parent.postMessage({
         type: "sell-in-ready",
-        summary: document.getElementById("sideBase")?.textContent || ""
+        summary: document.getElementById("sideBase")?.textContent || "",
+        groups: typeof activeFilterGroups === "function" ? activeFilterGroups() : []
       }, location.origin);
+      if (typeof notifyParentFilters === "function") notifyParentFilters();
     }));
   } catch (error) {
     parent.postMessage({
@@ -27,4 +29,6 @@ window.addEventListener("message", (event) => {
   if (data.type === "sell-in-goto" && data.id) {
     document.getElementById(data.id)?.scrollIntoView({ behavior: "smooth", block: "start" });
   }
+  if (data.type === "sell-in-clear") clearFilters();
+  if (data.type === "sell-in-clear-dim" && data.key) clearDimFilter(data.key);
 });

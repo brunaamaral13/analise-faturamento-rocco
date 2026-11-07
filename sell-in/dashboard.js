@@ -24,7 +24,6 @@ const COHORTS = {
 };
 const LOW_TICKET = 1500;
 const IDLE_GAP = 3;
-const NEW_YEAR = 2026;
 const STOCK_STUCK = 200;
 const STOCK_LOW = 100;
 const CONSIGN_TYPES = new Set(["LIVRARIA", "DISTRIBUIDOR", "HUDSON"]);
@@ -291,6 +290,8 @@ function parseWorkbook(text) {
   }
   const maxYear = years[years.length - 1];
   const anchor = maxYear * 12 + Math.max(0, lastMonth[maxYear]);
+  const newSince = anchor - 11;
+  const newSinceLabel = MONTHS[((newSince % 12) + 12) % 12] + "/" + Math.floor(newSince / 12);
   for (const client of clients) {
     let last = null;
     for (let i = years.length - 1; i >= 0 && last == null; i--) {
@@ -311,7 +312,7 @@ function parseWorkbook(text) {
     client.first = first;
     client.idleGap = last == null ? null : anchor - last;
     client.idle = client.idleGap != null && client.idleGap > IDLE_GAP;
-    client.novo = first != null && Math.floor(first / 12) >= NEW_YEAR;
+    client.novo = first != null && first >= newSince;
     client.lastLabel = last == null ? "sem histórico" : MONTHS[last % 12] + "/" + Math.floor(last / 12);
     client.firstLabel = first == null ? "sem histórico" : MONTHS[first % 12] + "/" + Math.floor(first / 12);
   }
@@ -325,7 +326,15 @@ function parseWorkbook(text) {
 
   return {
     clients,
-    meta: { years, lastMonth, maxYear, anchorLabel: MONTHS[Math.max(0, lastMonth[maxYear])] + "/" + maxYear },
+    meta: {
+      years,
+      lastMonth,
+      maxYear,
+      anchor,
+      newSince,
+      newSinceLabel,
+      anchorLabel: MONTHS[Math.max(0, lastMonth[maxYear])] + "/" + maxYear
+    },
     options
   };
 }
@@ -435,7 +444,9 @@ function metrics(client, year, m0, m1) {
 }
 function isUp(met) { return met.cur > met.prev + 0.5 && met.cur > 0.5; }
 function isDown(met) { return met.prev > 0.5 && met.cur < met.prev - 0.5; }
-function isLow(met) { return met.cur > 0.5 && met.avg < LOW_TICKET; }
+function isLow(client, met) {
+  return client.saldo > 0.5 && met.cur > 0.5 && met.avg < LOW_TICKET;
+}
 function isStuck(client) { return client.idle && client.saldo >= STOCK_STUCK; }
 function isReplenish(client, met) {
   return isDown(met) && client.saldo < STOCK_LOW && (client.saldo > 0.5 || CONSIGN_TYPES.has(client.tipo));
@@ -447,7 +458,7 @@ function matchCohort(client, win, cohort) {
   const met = metrics(client, win.year, win.m0, win.m1);
   if (cohort === "up") return isUp(met);
   if (cohort === "down") return isDown(met);
-  if (cohort === "low") return isLow(met);
+  if (cohort === "low") return isLow(client, met);
   if (cohort === "replenish") return isReplenish(client, met);
   return true;
 }
@@ -506,7 +517,7 @@ function activeFilterGroups() {
   const groups = [];
   for (const dim of DIMS) {
     const values = [...state.filters[dim.key]];
-    if (values.length) groups.push({ label: dim.label, values });
+    if (values.length) groups.push({ key: dim.key, label: dim.label, values });
   }
   const picked = [...state.filters.cliente];
   if (picked.length) {
@@ -515,34 +526,65 @@ function activeFilterGroups() {
       return client ? client.nome : id;
     });
     if (picked.length > 8) names.push("+" + (picked.length - 8) + " clientes");
-    groups.push({ label: "Cliente", values: names });
+    groups.push({ key: "cliente", label: "Cliente", values: names });
   }
-  if (state.period?.type === "month") groups.push({ label: "Período", values: [MONTHS[state.period.index]] });
-  if (state.period?.type === "quarter") groups.push({ label: "Período", values: [quarterMonths(state.period.index)] });
-  if (state.cohort) groups.push({ label: "Corte", values: [COHORTS[state.cohort]] });
+  if (state.period?.type === "month") groups.push({ key: "period", label: "Período", values: [MONTHS[state.period.index]] });
+  if (state.period?.type === "quarter") groups.push({ key: "period", label: "Período", values: [quarterMonths(state.period.index)] });
+  if (state.cohort) groups.push({ key: "cohort", label: "Corte", values: [COHORTS[state.cohort]] });
   if (state.clientId) {
     const client = state.clients.find((item) => item.id === state.clientId);
-    if (client) groups.push({ label: "Foco", values: [client.nome] });
+    if (client) groups.push({ key: "focus", label: "Foco", values: [client.nome] });
   }
   const query = state.search.trim();
-  if (query) groups.push({ label: "Busca", values: [query] });
+  if (query) groups.push({ key: "search", label: "Busca", values: [query] });
   return groups;
+}
+
+function notifyParentFilters() {
+  if (window.parent === window) return;
+  try {
+    parent.postMessage({
+      type: "sell-in-filters",
+      summary: $("sideBase")?.textContent || "",
+      groups: activeFilterGroups()
+    }, location.origin);
+  } catch (err) {
+    // ignore
+  }
 }
 
 function renderSideFilters() {
   const box = $("sideFilters");
   const list = $("sideFilterList");
   if (!state.meta) {
-    box.hidden = true;
-    list.innerHTML = "";
+    if (box) box.hidden = true;
+    if (list) list.innerHTML = "";
+    notifyParentFilters();
     return;
   }
   const groups = activeFilterGroups();
-  box.hidden = false;
-  list.innerHTML = groups.length
-    ? groups.map((group) => `<li>${esc(group.label)}: ${esc(group.values.join(", "))}</li>`).join("")
-    : `<li class="is-empty">Nenhum</li>`;
-  $("sideClear").hidden = groups.length === 0;
+  if (box) box.hidden = false;
+  if (list) {
+    list.innerHTML = groups.length
+      ? groups.map((group) => `<li>${esc(group.label)}: ${esc(group.values.join(", "))}</li>`).join("")
+      : `<li class="is-empty">Nenhum</li>`;
+  }
+  const sideClear = $("sideClear");
+  if (sideClear) sideClear.hidden = groups.length === 0;
+  notifyParentFilters();
+}
+
+function clearDimFilter(key) {
+  if (key === "cliente") state.filters.cliente.clear();
+  else if (key === "period") state.period = null;
+  else if (key === "cohort") { state.cohort = null; state.listTab = "up"; }
+  else if (key === "focus") state.clientId = null;
+  else if (key === "search") {
+    state.search = "";
+    state.searchPick = null;
+    if ($("q")) $("q").value = "";
+  } else if (state.filters[key]) state.filters[key].clear();
+  renderAll();
 }
 
 function clearFilters() {
@@ -550,6 +592,7 @@ function clearFilters() {
   state.filters.cliente.clear();
   state.period = null;
   state.cohort = null;
+  state.listTab = "up";
   state.clientId = null;
   state.search = "";
   state.searchPick = null;
@@ -1409,7 +1452,7 @@ function renderInsights(win) {
     const met = metrics(client, win.year, win.m0, win.m1);
     if (isUp(met)) counts.up++;
     if (isDown(met)) counts.down++;
-    if (isLow(met)) counts.low++;
+    if (isLow(client, met)) counts.low++;
     if (client.idle) counts.idle++;
     if (client.novo) counts.new++;
     if (isStuck(client)) counts.stuck++;
@@ -1433,7 +1476,7 @@ function renderAlerts(win, base) {
   for (const client of base) {
     const met = metrics(client, win.year, win.m0, win.m1);
     const flags = {
-      up: isUp(met), down: isDown(met), low: isLow(met), idle: client.idle, new: client.novo,
+      up: isUp(met), down: isDown(met), low: isLow(client, met), idle: client.idle, new: client.novo,
       stuck: isStuck(client), replenish: isReplenish(client, met), met
     };
     if (state.listTab === "stock" || flags[state.listTab]) rows.push({ client, ...flags });
@@ -1473,7 +1516,8 @@ function renderAlerts(win, base) {
   const idleAnchor = "último mês da base: " + state.meta.anchorLabel;
   const range = rangeLabel(win.m0, win.m1) + " de " + win.year;
   const how = {
-    new: "Primeira venda em " + NEW_YEAR + " ou depois, sem faturamento antes disso. Valores de " + range + ".",
+    new: "Primeira venda nos últimos 12 meses da base (desde " + (state.meta.newSinceLabel || "—") + "), sem faturamento antes disso. Valores de " + range + ".",
+    low: "Com saldo consignado e média mensal de faturamento abaixo de R$ 1.500 em " + range + ".",
     stuck: "Sem faturar há mais de 3 meses e com " + STOCK_STUCK.toLocaleString("pt-BR") + " livros ou mais consignados. " + idleAnchor + ".",
     replenish: "Faturamento caiu em " + range + " e o saldo consignado está abaixo de " + STOCK_LOW.toLocaleString("pt-BR") + " livros. Pode ser falta de reposição.",
     stock: "Clientes do recorte ordenados pelo saldo consignado, do maior para o menor."
@@ -1532,7 +1576,7 @@ function renderRanking(win) {
   const list = population({ win, focus: false });
   let rows = list.map((client) => {
     const met = metrics(client, win.year, win.m0, win.m1);
-    return { client, met, low: isLow(met) };
+    return { client, met, low: isLow(client, met) };
   });
   const books = rows.reduce((sum, row) => sum + row.client.saldo, 0);
   if (!state.searchPick && state.cohort !== "idle" && state.cohort !== "new" && state.cohort !== "stuck" && state.hideZeros) {
@@ -1570,7 +1614,7 @@ function renderRanking(win) {
     const stuck = isStuck(client);
     const replenish = isReplenish(client, row.met);
     const saldoClass = stuck ? "is-stuck" : replenish ? "is-replenish" : client.saldo > 0.5 ? "" : "is-zero";
-    const tags = (client.novo ? `<i class="tag tag-new" title="Sem faturamento antes de ${NEW_YEAR}. Primeira venda: ${esc(client.firstLabel)}">novo</i>` : "")
+    const tags = (client.novo ? `<i class="tag tag-new" title="Primeira venda nos últimos 12 meses da base (desde ${esc(state.meta.newSinceLabel || "")}). Primeira venda: ${esc(client.firstLabel)}">novo</i>` : "")
       + (stuck ? `<i class="tag tag-stuck" title="Sem faturar há ${client.idleGap} meses com ${formatBooks(client.saldo)} consignados">saldo consignado</i>` : "")
       + (replenish ? `<i class="tag tag-replenish" title="Faturamento caiu e o saldo consignado está abaixo de ${STOCK_LOW} livros">sem saldo consignado</i>` : "")
       + (row.low ? `<i class="tag tag-low" title="Média mensal abaixo de R$ 1.500">≤1,5 mil</i>` : "")
@@ -1614,7 +1658,7 @@ function renderDrawer(win) {
   if (client.novo) badges.push(`<span class="pill new">novo · desde ${esc(client.firstLabel)}</span>`);
   if (isUp(met)) badges.push(`<span class="pill up">cresceu</span>`);
   if (isDown(met)) badges.push(`<span class="pill down">caiu</span>`);
-  if (isLow(met)) badges.push(`<span class="pill low">média ${formatCompact(met.avg)}/mês</span>`);
+  if (isLow(client, met)) badges.push(`<span class="pill low">média ${formatCompact(met.avg)}/mês</span>`);
   if (client.idle && client.saldo > 0.5) badges.push(`<span class="pill idle-alert">${ALERT_ICON}${client.idleGap} meses · ${formatConsigned(client.saldo)}</span>`);
   else if (client.idle) badges.push(`<span class="pill idle">${client.idleGap} meses · ${formatConsigned(0)}</span>`);
   if (stuck) badges.push(`<span class="pill stuck">saldo consignado</span>`);

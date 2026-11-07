@@ -4,16 +4,57 @@ const VIEW_COPY = {
   out: {
     brand: "Sell-out",
     title: "Desempenho sell-out",
-    source: "Dados via Bookinfo"
+    source: "O que o cliente vendeu para o consumidor final"
   },
   in: {
     brand: "Sell-in",
     title: "Desempenho sell-in",
-    source: "O que a Rocco faturou para a loja"
+    source: "O que a Rocco faturou com o cliente"
   }
 };
 
-const sellIn = { fileName: "", text: "", rows: 0, headers: [], unit: "linha", buffer: null, summary: "" };
+const sellIn = { fileName: "", text: "", rows: 0, headers: [], unit: "linha", buffer: null, summary: "", filterGroups: [] };
+
+function escSide(value) {
+  return String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+function renderSellInSideFilters() {
+  const box = document.getElementById("sideFilters");
+  const list = document.getElementById("sideFilterList");
+  const clearBtn = document.getElementById("btnSideClear");
+  const clearAllBtn = document.getElementById("btnSideClearAll");
+  if (!box || !list) return;
+  if (!sellIn.fileName && !sellIn.summary) {
+    box.hidden = true;
+    return;
+  }
+  const groups = sellIn.filterGroups || [];
+  const hasFilters = groups.length > 0;
+  box.hidden = false;
+  if (clearBtn) clearBtn.hidden = !hasFilters;
+  if (clearAllBtn) clearAllBtn.hidden = !hasFilters;
+  if (!hasFilters) {
+    list.innerHTML = `<li class="is-empty">Nenhum recorte ativo</li>`;
+    return;
+  }
+  list.innerHTML = groups.map((group) => `
+    <li>
+      <span><b>${escSide(group.label)}:</b> ${escSide((group.values || []).join(", "))}</span>
+      <button type="button" class="side-filter-x" data-side-clear-dim="${escSide(group.key || "")}" title="Limpar ${escSide(group.label)}" aria-label="Limpar ${escSide(group.label)}">×</button>
+    </li>`).join("");
+}
+
+function postSellInClear(key) {
+  const frame = document.getElementById("sellInFrame");
+  if (!frame?.contentWindow) return;
+  if (key) frame.contentWindow.postMessage({ type: "sell-in-clear-dim", key }, location.origin);
+  else frame.contentWindow.postMessage({ type: "sell-in-clear" }, location.origin);
+}
 
 function showDashView(which, keep) {
   const view = which === "in" ? "in" : "out";
@@ -258,9 +299,19 @@ window.addEventListener("message", (event) => {
   const data = event.data || {};
   if (data.type === "sell-in-ready") {
     sellIn.summary = data.summary || sellIn.summary;
+    if (Array.isArray(data.groups)) sellIn.filterGroups = data.groups;
     setSellInLoading(false);
     revealSellIn();
     if (document.body.dataset.view === "in") syncSideBase("in");
+  }
+  if (data.type === "sell-in-filters") {
+    if (data.summary) sellIn.summary = data.summary;
+    if (Array.isArray(data.groups)) sellIn.filterGroups = data.groups;
+    if (document.body.dataset.view === "in") {
+      const base = document.getElementById("sideBase");
+      if (base && sellIn.summary) base.textContent = sellIn.summary;
+      renderSellInSideFilters();
+    }
   }
   if (data.type === "sell-in-error") showSellInError(data.message);
 });
