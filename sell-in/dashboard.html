@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,560;9..144,650&family=Outfit:wght@360;460;560;650&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="dashboard.css?v=20261106-painel">
+  <link rel="stylesheet" href="dashboard.css?v=20261109-valor">
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%23b5191a'/%3E%3C/svg%3E">
 </head>
 <body>
@@ -85,7 +85,7 @@
               <svg viewBox="0 0 24 24"><path d="M12 16V6"/><path d="m8 9 4-4 4 4"/><path d="M5 19h14"/></svg>
             </div>
             <h2>Solte o CSV de faturamento</h2>
-            <p>Use o arquivo no formato de <b>Faturamento sell-in acumulado</b>: uma linha por cliente, com código, tipo, rede, UF, vendedor, CNPJ, saldo consignado e os meses em blocos de ano contra ano.</p>
+            <p>Use o arquivo no formato de <b>Faturamento sell-in acumulado</b>: uma linha por cliente, com código, tipo, rede, UF, vendedor, CNPJ, saldo consignado, valor líquido total consignado e os meses em blocos de ano contra ano.</p>
             <button type="button" class="btn" id="pick">Selecionar arquivo</button>
             <p class="error" id="error" hidden></p>
           </div>
@@ -115,6 +115,11 @@
                 <span>Clientes ativos</span>
                 <b id="kpiActive">—</b>
                 <small id="kpiActiveSub">com venda no período</small>
+              </article>
+              <article class="kpi kpi-teal">
+                <span>Valor líquido consignado</span>
+                <b id="kpiValor">—</b>
+                <small id="kpiValorSub">soma do recorte</small>
               </article>
               <article class="kpi kpi-purple">
                 <span>Ticket médio mensal</span>
@@ -328,7 +333,7 @@
   </div>
 
   <script src="brazil-map.js"></script>
-  <script src="dashboard.js?v=20261107-filtros"></script>
+  <script src="dashboard.js?v=20261109-filtros"></script>
   <script src="embed.js?v=20261107-filtros"></script>
 </body>
 </html>
