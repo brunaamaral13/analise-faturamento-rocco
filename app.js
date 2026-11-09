@@ -28,6 +28,9 @@ const state = {
   search: "",
   isbnQuery: "",
   titleQuery: "",
+  authorQuery: "",
+  authors: new Set(),
+  authorLabels: new Map(),
   books: [],
   stores: [],
   sku: new Set(),
@@ -231,6 +234,10 @@ function scopeLabel() {
       parts.push(`ISBN: ${skus.length} títulos`);
     }
   }
+  if (state.authors.size) {
+    const names = [...state.authors].map((key) => state.authorLabels.get(key) || key);
+    parts.push(names.length === 1 ? `Autor: ${names[0]}` : `Autor: ${names.length} selecionados`);
+  }
   if (state.novos) parts.push(`Novos na base: desde ${monthKeyLabel(state.newSince)}`);
   return parts.join(" · ");
 }
@@ -339,6 +346,7 @@ function filteredRows(except = null) {
   return state.rows.filter((r) => {
     if (state.novos && except !== "novos" && !state.newStoreIds.has(storeId(r))) return false;
     if (except !== "sku" && state.sku.size && !state.sku.has(r.sku)) return false;
+    if (except !== "autor" && state.authors.size && !state.authors.has(norm(r.autor))) return false;
     for (const dim of DIMS) {
       if (except === dim.key) continue;
       const set = f[dim.key];
@@ -349,7 +357,7 @@ function filteredRows(except = null) {
 }
 
 function hasActiveFilters() {
-  if (state.periodMonth != null || state.search.trim() || state.isbnQuery.trim() || state.titleQuery.trim() || state.sku.size || state.novos || state.paradas) return true;
+  if (state.periodMonth != null || state.search.trim() || state.isbnQuery.trim() || state.titleQuery.trim() || state.authorQuery.trim() || state.authors.size || state.sku.size || state.novos || state.paradas) return true;
   return DIMS.some((d) => state.filters[d.key].size);
 }
 
@@ -366,6 +374,10 @@ function activeFilterGroups() {
       return desc ? `${sku} · ${desc}` : sku;
     });
     groups.push({ key: "sku", label: "ISBN", values });
+  }
+  if (state.authors.size) {
+    const values = [...state.authors].map((key) => state.authorLabels.get(key) || key);
+    groups.push({ key: "autor", label: "Autor", values });
   }
   if (state.novos) groups.push({ key: "novos", label: "Novos na base", values: [`desde ${monthKeyLabel(state.newSince)}`] });
   if (state.paradas) groups.push({ key: "paradas", label: "Lojas paradas", values: ["zeraram neste período"] });
@@ -593,6 +605,10 @@ function renderChips() {
       label: desc ? `ISBN: ${sku} · ${desc}` : `ISBN: ${sku}`
     });
   }
+  for (const key of state.authors) {
+    const name = state.authorLabels.get(key) || key;
+    chips.push({ kind: "autor", value: key, label: `Autor: ${name}` });
+  }
   if (state.novos) {
     chips.push({ kind: "novos", label: `Novos na base: desde ${monthKeyLabel(state.newSince)}` });
   }
@@ -618,6 +634,14 @@ function removeChipFilter(chip) {
     } else {
       state.sku.clear();
       state.skuDesc.clear();
+    }
+  } else if (chip.kind === "autor") {
+    if (chip.value) {
+      state.authors.delete(chip.value);
+      state.authorLabels.delete(chip.value);
+    } else {
+      state.authors.clear();
+      state.authorLabels.clear();
     }
   } else if (chip.kind === "novos") {
     state.novos = false;
@@ -645,6 +669,9 @@ function clearDimFilter(dimKey) {
   } else if (dimKey === "sku") {
     state.sku.clear();
     state.skuDesc.clear();
+  } else if (dimKey === "autor") {
+    state.authors.clear();
+    state.authorLabels.clear();
   } else if (dimKey === "novos") {
     state.novos = false;
   } else if (dimKey === "paradas") {
@@ -1347,6 +1374,9 @@ function buildLookups(rows) {
         desc: r.desc || "",
         descNorm: norm(r.desc || ""),
         cat: r.cat || "",
+        autor: r.autor || "",
+        autorNorm: norm(r.autor || ""),
+        autorNorms: new Set(r.autor ? [norm(r.autor)] : []),
         digits: digitsOf(r.sku),
         lojas: new Set(),
         ids: new Set(),
@@ -1356,9 +1386,19 @@ function buildLookups(rows) {
         cats: new Set()
       };
       books.set(r.sku, book);
-    } else if (!book.desc && r.desc) {
-      book.desc = r.desc;
-      book.descNorm = norm(r.desc);
+    } else {
+      if (!book.desc && r.desc) {
+        book.desc = r.desc;
+        book.descNorm = norm(r.desc);
+      }
+      if (r.autor) {
+        const key = norm(r.autor);
+        book.autorNorms.add(key);
+        if (!book.autor) {
+          book.autor = r.autor;
+          book.autorNorm = key;
+        }
+      }
     }
     book.lojas.add(r.loja);
     book.ids.add(storeId(r));
@@ -1370,7 +1410,7 @@ function buildLookups(rows) {
     let store = stores.get(r.loja);
     if (!store) {
       const cnpjDigits = digitsOf(r.cnpj || r.loja);
-      store = { id: storeId(r), loja: r.loja, grupo: r.grupo, vend: r.vend, cnpjDigits, lojaNorm: norm(r.loja), vends: new Set(), grupos: new Set(), ufs: new Set(), cats: new Set(), skus: new Set() };
+      store = { id: storeId(r), loja: r.loja, grupo: r.grupo, vend: r.vend, cnpjDigits, lojaNorm: norm(r.loja), vends: new Set(), grupos: new Set(), ufs: new Set(), cats: new Set(), skus: new Set(), autorNorms: new Set() };
       stores.set(r.loja, store);
     }
     store.vends.add(r.vend);
@@ -1378,6 +1418,7 @@ function buildLookups(rows) {
     store.ufs.add(r.uf);
     store.cats.add(r.cat);
     store.skus.add(r.sku);
+    if (r.autor) store.autorNorms.add(norm(r.autor));
     if (r.cnpj) store.cnpjDigits = digitsOf(r.cnpj);
   }
   state.books = [...books.values()];
@@ -1390,6 +1431,7 @@ function storeInScope(store) {
   if (!hitsFilter(store.grupos, f.grupo)) return false;
   if (!hitsFilter(store.ufs, f.uf)) return false;
   if (!hitsFilter(store.cats, f.categoria)) return false;
+  if (!hitsFilter(store.autorNorms, state.authors)) return false;
   if (state.sku.size) {
     let ok = false;
     for (const sku of state.sku) {
@@ -1401,13 +1443,22 @@ function storeInScope(store) {
   return true;
 }
 
-function bookInScope(book) {
+function bookMatchesAuthor(book) {
+  if (!state.authors.size) return true;
+  const keys = book.autorNorms;
+  if (!keys) return state.authors.has(book.autorNorm);
+  for (const key of keys) if (state.authors.has(key)) return true;
+  return false;
+}
+
+function bookInScope(book, except) {
   const f = state.filters;
   if (!hitsFilter(book.vends, f.vendedor)) return false;
   if (!hitsFilter(book.grupos, f.grupo)) return false;
   if (!hitsFilter(book.lojas, f.loja)) return false;
   if (!hitsFilter(book.ufs, f.uf)) return false;
   if (!hitsFilter(book.cats, f.categoria)) return false;
+  if (except !== "autor" && !bookMatchesAuthor(book)) return false;
   if (state.novos) {
     let known = false;
     for (const id of book.ids) if (state.newStoreIds.has(id)) { known = true; break; }
@@ -1513,10 +1564,56 @@ function renderTitleSearch() {
     : `<p class="search-more">Nenhum título para “${esc(q)}”.</p>`;
 }
 
+function renderAuthorSearch() {
+  const box = $("authorHit");
+  const input = $("qAuthor");
+  if (!box || !input) return;
+  const q = state.authorQuery.trim();
+  if (!q || !state.meta) { box.hidden = true; box.innerHTML = ""; input.setAttribute("aria-expanded", "false"); return; }
+  const nq = norm(q);
+  if (nq.length < 2) {
+    box.hidden = false;
+    input.setAttribute("aria-expanded", "true");
+    state.menuOptions.searchAuthor = [];
+    box.innerHTML = `<p class="search-more">Digite ao menos 2 letras do autor.</p>`;
+    return;
+  }
+  const map = new Map();
+  for (const book of state.books) {
+    if (!book.autorNorm || !book.autorNorm.includes(nq) || !bookInScope(book, "autor")) continue;
+    let cur = map.get(book.autorNorm);
+    if (!cur) {
+      cur = { key: book.autorNorm, label: book.autor, n: 0 };
+      map.set(book.autorNorm, cur);
+    }
+    cur.n += 1;
+  }
+  const hits = [...map.values()].sort((a, b) => {
+    const rank = (item) => item.key === nq ? 0 : item.key.startsWith(nq) ? 1 : 2;
+    return rank(a) - rank(b) || b.n - a.n || a.label.localeCompare(b.label, "pt-BR");
+  });
+  const top = hits.slice(0, 8);
+  box.hidden = false;
+  input.setAttribute("aria-expanded", "true");
+  state.menuOptions.searchAuthor = top;
+  const picked = state.authors.size;
+  const more = hits.length > top.length
+    ? `<p class="search-more">Mais ${hits.length - top.length} ${hits.length - top.length === 1 ? "autor" : "autores"}. Continue o nome.</p>`
+    : "";
+  box.innerHTML = top.length
+    ? `${top.map((r, i) => {
+        const on = state.authors.has(r.key);
+        const titles = r.n === 1 ? "1 título" : `${numFmt.format(r.n)} títulos`;
+        return `<button type="button" class="${on ? "is-on" : ""}" data-search-author="${i}" aria-pressed="${on}"><b>${esc(r.label)}</b><small>${titles}${on ? " · selecionado" : ""}</small></button>`;
+      }).join("")}${picked ? `<p class="search-more">${picked === 1 ? "1 autor selecionado" : `${picked} autores selecionados`} · clique para marcar/desmarcar</p>` : `<p class="search-more">Clique para selecionar um ou mais autores</p>`}${more}`
+    : `<p class="search-more">Nenhum autor para “${esc(q)}”.</p>`;
+}
+
 function renderSearch() {
   renderStoreSearch();
   renderIsbnSearch();
   renderTitleSearch();
+  renderAuthorSearch();
 }
 
 function closeSearchMenus() {
@@ -1536,15 +1633,20 @@ function closeSearchMenus() {
     if ($("qTitle")) $("qTitle").value = "";
     changed = true;
   }
+  if (state.authorQuery) {
+    state.authorQuery = "";
+    if ($("qAuthor")) $("qAuthor").value = "";
+    changed = true;
+  }
   if (!changed) {
-    ["searchHit", "isbnHit", "titleHit"].forEach((id) => {
+    ["searchHit", "isbnHit", "titleHit", "authorHit"].forEach((id) => {
       const box = $(id);
       if (box && !box.hidden) {
         box.hidden = true;
         box.innerHTML = "";
       }
     });
-    ["q", "qIsbn", "qTitle"].forEach((id) => $(id)?.setAttribute("aria-expanded", "false"));
+    ["q", "qIsbn", "qTitle", "qAuthor"].forEach((id) => $(id)?.setAttribute("aria-expanded", "false"));
     return;
   }
   renderSearch();
@@ -1577,8 +1679,23 @@ function toggleSku(book, { keepSearch = true, focusId = "" } = {}) {
   }
 }
 
-function applyIsbn(book, focusId = "") {
-  toggleSku(book, { keepSearch: true, focusId });
+function applyAuthor(author, focusId = "qAuthor") {
+  if (!author?.key) return;
+  if (state.authors.has(author.key)) {
+    state.authors.delete(author.key);
+    state.authorLabels.delete(author.key);
+  } else {
+    state.authors.add(author.key);
+    state.authorLabels.set(author.key, author.label || author.key);
+  }
+  pruneIncompatibleFilters();
+  renderAll();
+  const input = $(focusId);
+  if (input) {
+    input.focus();
+    const val = input.value;
+    input.setSelectionRange(val.length, val.length);
+  }
 }
 
 function applyLoja(loja, openDrawer = true) {
@@ -1635,6 +1752,7 @@ function drawerScopedRows(loja) {
     if (r.loja !== loja) return false;
     if (state.novos && !state.newStoreIds.has(storeId(r))) return false;
     if (state.sku.size && !state.sku.has(r.sku)) return false;
+    if (state.authors.size && !state.authors.has(norm(r.autor))) return false;
     for (const dim of DIMS) {
       if (dim.key === "loja") continue;
       const set = state.filters[dim.key];
@@ -1662,6 +1780,12 @@ function drawerScopeNote() {
     parts.push(state.skuDesc.get(sku) || `ISBN ${sku}`);
   } else if (state.sku.size > 1) {
     parts.push(`${state.sku.size} títulos`);
+  }
+  if (state.authors.size === 1) {
+    const key = [...state.authors][0];
+    parts.push(state.authorLabels.get(key) || key);
+  } else if (state.authors.size > 1) {
+    parts.push(`${state.authors.size} autores`);
   }
   for (const dim of DIMS) {
     if (dim.key === "loja") continue;
@@ -1839,6 +1963,9 @@ async function ingestText(text, fileName) {
     state.paradas = false;
     state.isbnQuery = "";
     state.titleQuery = "";
+    state.authorQuery = "";
+    state.authors = new Set();
+    state.authorLabels = new Map();
     state.itemGrupo = "";
     state.itemLoja = "";
     state.itemCategoria = "";
@@ -1851,6 +1978,10 @@ async function ingestText(text, fileName) {
     if ($("qTitle")) {
       $("qTitle").disabled = false;
       $("qTitle").value = "";
+    }
+    if ($("qAuthor")) {
+      $("qAuthor").disabled = false;
+      $("qAuthor").value = "";
     }
     $("fileLabel").textContent = "Trocar CSV";
     $("fileMeta").textContent = state.fileName;
@@ -1972,6 +2103,9 @@ function clearFilters() {
   state.search = "";
   state.isbnQuery = "";
   state.titleQuery = "";
+  state.authorQuery = "";
+  state.authors.clear();
+  state.authorLabels.clear();
   state.sku = new Set();
   state.skuDesc = new Map();
   state.novos = false;
@@ -1979,6 +2113,7 @@ function clearFilters() {
   $("q").value = "";
   $("qIsbn").value = "";
   if ($("qTitle")) $("qTitle").value = "";
+  if ($("qAuthor")) $("qAuthor").value = "";
   renderAll();
 }
 
@@ -2172,6 +2307,13 @@ function wire() {
     if (searchTitle) {
       e.preventDefault();
       applyIsbn(state.menuOptions.searchTitle?.[Number(searchTitle.getAttribute("data-search-title"))], "qTitle");
+      return;
+    }
+
+    const searchAuthor = t.closest("[data-search-author]");
+    if (searchAuthor) {
+      e.preventDefault();
+      applyAuthor(state.menuOptions.searchAuthor?.[Number(searchAuthor.getAttribute("data-search-author"))]);
       return;
     }
 
@@ -2372,6 +2514,21 @@ function wire() {
     if (e.key !== "Enter") return;
     e.preventDefault();
     applyIsbn(state.menuOptions.searchTitle?.[0], "qTitle");
+  });
+  $("qAuthor")?.addEventListener("input", (e) => {
+    state.authorQuery = e.target.value;
+    renderAuthorSearch();
+  });
+  $("qAuthor")?.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") {
+      state.authorQuery = "";
+      $("qAuthor").value = "";
+      renderAuthorSearch();
+      return;
+    }
+    if (e.key !== "Enter") return;
+    e.preventDefault();
+    applyAuthor(state.menuOptions.searchAuthor?.[0]);
   });
 
   const trend = $("trend");

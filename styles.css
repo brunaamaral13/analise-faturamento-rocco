@@ -375,6 +375,7 @@ h1, h2, p { margin: 0; }
 .search input:disabled { cursor: not-allowed; }
 .search-isbn { min-width: min(200px, 70vw); }
 .search-title { min-width: min(260px, 70vw); }
+.search-author { min-width: min(220px, 70vw); }
 .search-wrap { position: relative; }
 .search-hit {
   position: absolute;
