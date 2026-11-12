@@ -496,11 +496,21 @@ body.is-drag .drop { border-color: var(--red); transform: translateY(-2px); }
 .slice-list { display: flex; flex-direction: column; max-height: 280px; overflow: auto; }
 .slice {
   width: 100%; text-align: left; border-radius: 10px; padding: 6px 8px;
+  gap: 8px;
+}
+.slice > span {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
 }
 .slice:hover, .slice.is-hot { background: #f6f7fb; }
 .slice.is-dim { opacity: .4; }
-.slice b { margin-left: auto; font-variant-numeric: tabular-nums; font-weight: 650; }
-.slice small { display: block; color: var(--muted); font-weight: 460; font-size: 11px; }
+.slice b { margin-left: auto; flex: none; font-variant-numeric: tabular-nums; font-weight: 650; }
+.slice small {
+  display: block; color: var(--muted); font-weight: 460; font-size: 11px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+#dimSeg { max-width: 320px; justify-content: flex-end; }
 
 .alert-list { display: flex; flex-direction: column; gap: 4px; max-height: 430px; overflow: auto; padding-right: 2px; }
 .alert-row {

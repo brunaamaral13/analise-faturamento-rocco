@@ -13,6 +13,10 @@ const DIMS = [
   { key: "tipo", label: "Tipo" },
   { key: "uf", label: "UF" }
 ];
+const DONUT_DIMS = [
+  ...DIMS,
+  { key: "saldo", label: "Saldo consignado", filterKey: "cliente" }
+];
 const COHORTS = {
   up: "Cresceram",
   down: "Caíram",
@@ -506,8 +510,9 @@ function population(opts) {
   const except = opts.except || null;
   const useCohort = opts.cohort !== false;
   const useFocus = !!opts.focus;
+  const ignoreCliente = !!opts.ignoreCliente;
   const ids = matchingSearchIds();
-  let list = state.clients.filter((client) => inDim(client, except) && inClient(client) && (!ids || ids.has(client.id)));
+  let list = state.clients.filter((client) => inDim(client, except) && (ignoreCliente || inClient(client)) && (!ids || ids.has(client.id)));
   if (useCohort && state.cohort) list = list.filter((client) => matchCohort(client, win, state.cohort));
   if (useFocus && state.clientId) {
     const one = list.find((client) => client.id === state.clientId);
@@ -837,39 +842,87 @@ function buildUfModel(list, win) {
   return { view: state.view, categories, rows, selected, year: state.analysisYear };
 }
 
+function donutDimMeta(dim = state.donutDim) {
+  return DONUT_DIMS.find((item) => item.key === dim) || DONUT_DIMS[0];
+}
+
+function donutFilterKey(dim = state.donutDim) {
+  return donutDimMeta(dim).filterKey || dim;
+}
+
+function donutFilterSet(dim = state.donutDim) {
+  return state.filters[donutFilterKey(dim)];
+}
+
 function buildDonut(list, win) {
   const dim = state.donutDim;
-  const buckets = new Map();
-  for (const client of list) {
-    const key = client[dim];
-    buckets.set(key, (buckets.get(key) || 0) + metrics(client, win.year, win.m0, win.m1).cur);
-  }
-  let slices = [...buckets.entries()]
-    .map(([key, value]) => ({ key, value }))
-    .filter((slice) => dim === "vendedor" || slice.value > 0.5)
-    .sort((a, b) => b.value - a.value);
-  const limit = dim === "tipo" ? 16 : 8;
-  if (dim === "rede") {
-    const shown = new Set(slices.slice(0, limit).map((slice) => slice.key));
-    const head = slices.filter((slice) => shown.has(slice.key));
-    for (const key of PINNED_REDES) {
-      if (shown.has(key)) continue;
-      head.push({ key, value: buckets.get(key) || 0 });
-      shown.add(key);
+  let slices;
+  if (dim === "saldo") {
+    slices = list
+      .filter((client) => client.valor > 0.5)
+      .map((client) => ({
+        key: client.id,
+        label: client.nome,
+        value: client.valor,
+        saldo: client.saldo,
+        meta: [client.tipo, client.uf].filter(Boolean).join(" · ")
+      }))
+      .sort((a, b) => b.value - a.value || a.label.localeCompare(b.label, "pt-BR"));
+    const limit = 8;
+    if (slices.length > limit) {
+      const head = slices.slice(0, limit);
+      const rest = slices.slice(limit);
+      const restValue = rest.reduce((sum, slice) => sum + slice.value, 0);
+      const restSaldo = rest.reduce((sum, slice) => sum + slice.saldo, 0);
+      slices = head;
+      if (restValue > 0.5) {
+        slices.push({
+          key: "Outros",
+          label: "Outros",
+          value: restValue,
+          saldo: restSaldo,
+          meta: rest.length + (rest.length === 1 ? " cliente" : " clientes"),
+          outros: true
+        });
+      }
     }
-    head.sort((a, b) => b.value - a.value);
-    const rest = slices.reduce((sum, slice) => shown.has(slice.key) ? sum : sum + slice.value, 0);
-    slices = head;
-    if (rest > 0.5) slices.push({ key: "Outros", value: rest, outros: true });
-  } else if (slices.length > limit) {
-    const head = slices.slice(0, limit);
-    const rest = slices.slice(limit).reduce((sum, slice) => sum + slice.value, 0);
-    slices = head;
-    if (rest > 0.5) slices.push({ key: "Outros", value: rest, outros: true });
+  } else {
+    const buckets = new Map();
+    for (const client of list) {
+      const key = client[dim];
+      buckets.set(key, (buckets.get(key) || 0) + metrics(client, win.year, win.m0, win.m1).cur);
+    }
+    slices = [...buckets.entries()]
+      .map(([key, value]) => ({ key, label: key, value }))
+      .filter((slice) => dim === "vendedor" || slice.value > 0.5)
+      .sort((a, b) => b.value - a.value);
+    const limit = dim === "tipo" ? 16 : 8;
+    if (dim === "rede") {
+      const shown = new Set(slices.slice(0, limit).map((slice) => slice.key));
+      const head = slices.filter((slice) => shown.has(slice.key));
+      for (const key of PINNED_REDES) {
+        if (shown.has(key)) continue;
+        head.push({ key, label: key, value: buckets.get(key) || 0 });
+        shown.add(key);
+      }
+      head.sort((a, b) => b.value - a.value);
+      const rest = slices.reduce((sum, slice) => shown.has(slice.key) ? sum : sum + slice.value, 0);
+      slices = head;
+      if (rest > 0.5) slices.push({ key: "Outros", label: "Outros", value: rest, outros: true });
+    } else if (slices.length > limit) {
+      const head = slices.slice(0, limit);
+      const rest = slices.slice(limit).reduce((sum, slice) => sum + slice.value, 0);
+      slices = head;
+      if (rest > 0.5) slices.push({ key: "Outros", label: "Outros", value: rest, outros: true });
+    }
   }
   const total = slices.reduce((sum, slice) => sum + slice.value, 0);
   return {
-    slices: slices.map((slice) => ({ ...slice, color: slice.outros ? "#c5c8d2" : colorFor(dim + ":" + slice.key) })),
+    slices: slices.map((slice) => ({
+      ...slice,
+      label: slice.label || slice.key,
+      color: slice.outros ? "#c5c8d2" : colorFor(dim + ":" + slice.key)
+    })),
     total
   };
 }
@@ -1181,7 +1234,7 @@ function paintDonut(progress) {
     ctx.stroke();
     return;
   }
-  const selected = state.filters[state.donutDim];
+  const selected = donutFilterSet();
   let angle = -Math.PI / 2;
   const gap = slices.length > 1 ? 0.018 : 0;
   const hot = charts.hover && charts.hover.chart === "donut" ? charts.hover.key : null;
@@ -1283,22 +1336,28 @@ function updateCharts(listForTrend, listForDonut, win) {
     return `<button type="button" class="${off}" data-year="${year}"><i style="background:${yearColor(year)}"></i>${year}</button>`;
   }).join("");
 
-  const selected = state.filters[state.donutDim];
+  const selected = donutFilterSet();
   const total = donut.total;
+  const isSaldo = state.donutDim === "saldo";
   $("donutTotal").textContent = total ? formatCompact(total) : "—";
-  $("donutCaption").textContent = String(win.year);
-  $("donutSub").textContent = "Participação por " + DIMS.find((dim) => dim.key === state.donutDim).label.toLowerCase() + " · " + rangeLabel(win.m0, win.m1);
+  $("donutCaption").textContent = isSaldo ? "Saldo" : String(win.year);
+  $("donutSub").textContent = isSaldo
+    ? "Share do valor líquido consignado por cliente · posição atual"
+    : "Participação por " + donutDimMeta().label.toLowerCase() + " · " + rangeLabel(win.m0, win.m1);
   $("donutLegend").innerHTML = donut.slices.length
     ? donut.slices.map((slice) => {
       const pct = total ? (slice.value / total) * 100 : 0;
       const dimmed = selected.size && !selected.has(slice.key) && !slice.outros ? " is-dim" : "";
-      return `<button type="button" class="slice${dimmed}" data-slice="${esc(slice.key)}" data-outros="${slice.outros ? "1" : ""}">
+      const detail = isSaldo
+        ? `${formatCompact(slice.value)}${slice.saldo > 0.5 ? ` · ${formatBooks(slice.saldo)}` : ""}${slice.meta ? ` · ${slice.meta}` : ""}`
+        : formatCompact(slice.value);
+      return `<button type="button" class="slice${dimmed}" data-slice="${esc(slice.key)}" data-outros="${slice.outros ? "1" : ""}" title="${esc(slice.label || slice.key)}">
         <i style="background:${slice.color}"></i>
-        <span>${esc(slice.key)}<small>${formatCompact(slice.value)}</small></span>
+        <span>${esc(slice.label || slice.key)}<small>${esc(detail)}</small></span>
         <b>${pct.toLocaleString("pt-BR", { maximumFractionDigits: 1 })}%</b>
       </button>`;
     }).join("")
-    : `<p class="empty-row">Sem faturamento neste recorte.</p>`;
+    : `<p class="empty-row">${isSaldo ? "Sem saldo consignado neste recorte." : "Sem faturamento neste recorte."}</p>`;
 }
 
 function renderUfList(model, win) {
@@ -1840,7 +1899,11 @@ function renderAll() {
   const win = windowOf();
   const kpiList = population({ win, focus: true });
   const trendList = population({ win, focus: true });
-  const donutList = population({ win, focus: false });
+  const donutList = population({
+    win,
+    focus: false,
+    ignoreCliente: state.donutDim === "saldo"
+  });
   const base = renderInsights(win);
   renderKpis(win, kpiList);
   renderAlerts(win, base);
@@ -2309,7 +2372,7 @@ function bind() {
   $("donutLegend").addEventListener("click", (event) => {
     const button = event.target.closest("[data-slice]");
     if (!button || button.dataset.outros === "1") return;
-    const set = state.filters[state.donutDim];
+    const set = donutFilterSet();
     const value = button.dataset.slice;
     if (set.has(value)) set.delete(value);
     else set.add(value);
@@ -2469,7 +2532,10 @@ function bind() {
     donut.style.cursor = found && !found.outros ? "pointer" : "default";
     paintDonut(charts.p || 1);
     if (!found) { hideTip("chart"); return; }
-    showTip(event.clientX, event.clientY, `<b>${esc(found.key)}</b><div>${formatFull(found.value)}</div>`, "chart");
+    const tipMeta = state.donutDim === "saldo" && found.saldo > 0.5
+      ? `<div>${formatBooks(found.saldo)}${found.meta ? ` · ${esc(found.meta)}` : ""}</div>`
+      : "";
+    showTip(event.clientX, event.clientY, `<b>${esc(found.label || found.key)}</b><div>${formatFull(found.value)}</div>${tipMeta}`, "chart");
   });
   donut.addEventListener("pointerleave", () => {
     charts.hover = null;
@@ -2479,7 +2545,7 @@ function bind() {
   donut.addEventListener("click", (event) => {
     const found = donutHit(event.offsetX, event.offsetY);
     if (!found || found.outros) return;
-    const set = state.filters[state.donutDim];
+    const set = donutFilterSet();
     if (set.has(found.key)) set.delete(found.key);
     else set.add(found.key);
     renderAll();

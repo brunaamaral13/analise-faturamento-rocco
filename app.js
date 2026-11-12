@@ -2299,14 +2299,14 @@ function wire() {
     const searchIsbn = t.closest("[data-search-isbn]");
     if (searchIsbn) {
       e.preventDefault();
-      applyIsbn(state.menuOptions.searchIsbn?.[Number(searchIsbn.getAttribute("data-search-isbn"))], "qIsbn");
+      toggleSku(state.menuOptions.searchIsbn?.[Number(searchIsbn.getAttribute("data-search-isbn"))], { focusId: "qIsbn" });
       return;
     }
 
     const searchTitle = t.closest("[data-search-title]");
     if (searchTitle) {
       e.preventDefault();
-      applyIsbn(state.menuOptions.searchTitle?.[Number(searchTitle.getAttribute("data-search-title"))], "qTitle");
+      toggleSku(state.menuOptions.searchTitle?.[Number(searchTitle.getAttribute("data-search-title"))], { focusId: "qTitle" });
       return;
     }
 
@@ -2498,7 +2498,7 @@ function wire() {
     }
     if (e.key !== "Enter") return;
     e.preventDefault();
-    applyIsbn(state.menuOptions.searchIsbn?.[0], "qIsbn");
+    toggleSku(state.menuOptions.searchIsbn?.[0], { focusId: "qIsbn" });
   });
   $("qTitle")?.addEventListener("input", (e) => {
     state.titleQuery = e.target.value;
@@ -2513,7 +2513,7 @@ function wire() {
     }
     if (e.key !== "Enter") return;
     e.preventDefault();
-    applyIsbn(state.menuOptions.searchTitle?.[0], "qTitle");
+    toggleSku(state.menuOptions.searchTitle?.[0], { focusId: "qTitle" });
   });
   $("qAuthor")?.addEventListener("input", (e) => {
     state.authorQuery = e.target.value;
