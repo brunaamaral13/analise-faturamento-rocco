@@ -13,7 +13,7 @@ const SLICE_COLORS = ["#b5191a","#e0a106","#0f7a5a","#1b2a4a","#7c4d9e","#d46a2e
 
 const ACCESS_LOG_URL = "https://script.google.com/macros/s/AKfycbxBZ_YCXrDiwr1hFVlL8PWn6pyfH5-7e7yWknE9HOsIGyMrPyRVRoBG95EHenABRrEv6A/exec";
 const SELLER_STORAGE_KEY = "rocco_sellout_vendedor";
-const SELLERS = ["Bruna", "Geysa", "Gilsan", "Michael", "Rafaela", "Rossano", "Salete", "Silvia"];
+const SELLERS = ["Bruna", "Dani", "Geysa", "Gilsan", "Michael", "Rafaela", "Rossano", "Salete", "Silvia"];
 
 const state = {
   rows: [],
