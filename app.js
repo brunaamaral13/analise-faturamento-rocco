@@ -23,7 +23,8 @@ const state = {
   sellerPick: "",
   filters: { vendedor: new Set(), grupo: new Set(), loja: new Set(), uf: new Set(), categoria: new Set() },
   analysisYear: null,
-  periodMonth: null,
+  period: null,
+  trendView: "mensal",
   donutDim: "loja",
   search: "",
   isbnQuery: "",
@@ -224,7 +225,7 @@ function scopeLabel() {
     if (!vals.length) continue;
     parts.push(vals.length === 1 ? `${dim.label}: ${vals[0]}` : `${dim.label}: ${vals.length} selecionados`);
   }
-  if (state.periodMonth != null) parts.push(`Mês: ${MONTHS[state.periodMonth]}`);
+  if (state.period) parts.push(periodScopeLabel());
   if (state.sku.size) {
     const skus = [...state.sku];
     if (skus.length === 1) {
@@ -286,9 +287,32 @@ function pruneIncompatibleFilters() {
   return changed;
 }
 
+function capMonth(name) {
+  const text = String(name || "");
+  return text.charAt(0).toUpperCase() + text.slice(1);
+}
+
+function quarterLabel(q) {
+  return `${capMonth(MONTHS_SHORT[q * 3])} a ${capMonth(MONTHS_SHORT[q * 3 + 2])}`;
+}
+
+function semesterLabel(s) {
+  return s === 0
+    ? `${capMonth(MONTHS_SHORT[0])} a ${capMonth(MONTHS_SHORT[5])}`
+    : `${capMonth(MONTHS_SHORT[6])} a ${capMonth(MONTHS_SHORT[11])}`;
+}
+
+function periodScopeLabel(period = state.period) {
+  if (!period) return "";
+  if (period.type === "month") return `Mês: ${MONTHS[period.index]}`;
+  if (period.type === "quarter") return `Trimestre: ${quarterLabel(period.index)}`;
+  if (period.type === "semester") return `Semestre: ${semesterLabel(period.index)}`;
+  return "";
+}
+
 function windowFor(year) {
   const last = state.meta.lastMonth[year] ?? 11;
-  if (state.periodMonth != null) return { y: year, m0: state.periodMonth, m1: state.periodMonth, kind: "month" };
+  if (state.period) return { y: year, m0: state.period.m0, m1: state.period.m1, kind: state.period.type };
   return { y: year, m0: 0, m1: last, kind: "ytd" };
 }
 
@@ -357,7 +381,7 @@ function filteredRows(except = null) {
 }
 
 function hasActiveFilters() {
-  if (state.periodMonth != null || state.search.trim() || state.isbnQuery.trim() || state.titleQuery.trim() || state.authorQuery.trim() || state.authors.size || state.sku.size || state.novos || state.paradas) return true;
+  if (state.period || state.search.trim() || state.isbnQuery.trim() || state.titleQuery.trim() || state.authorQuery.trim() || state.authors.size || state.sku.size || state.novos || state.paradas) return true;
   return DIMS.some((d) => state.filters[d.key].size);
 }
 
@@ -367,7 +391,15 @@ function activeFilterGroups() {
     const values = [...state.filters[dim.key]];
     if (values.length) groups.push({ key: dim.key, label: dim.label, values });
   }
-  if (state.periodMonth != null) groups.push({ key: "mes", label: "Mês", values: [MONTHS[state.periodMonth]] });
+  if (state.period) {
+    const label = state.period.type === "quarter" ? "Trimestre" : state.period.type === "semester" ? "Semestre" : "Mês";
+    const value = state.period.type === "month"
+      ? MONTHS[state.period.index]
+      : state.period.type === "quarter"
+        ? quarterLabel(state.period.index)
+        : semesterLabel(state.period.index);
+    groups.push({ key: "mes", label, values: [value] });
+  }
   if (state.sku.size) {
     const values = [...state.sku].map((sku) => {
       const desc = state.skuDesc.get(sku);
@@ -594,9 +626,7 @@ function renderChips() {
       chips.push({ kind: "dim", dim: dim.key, value: v, label: `${dim.label}: ${v}` });
     }
   }
-  if (state.periodMonth != null) {
-    chips.push({ kind: "mes", label: `Mês: ${MONTHS[state.periodMonth]}` });
-  }
+  if (state.period) chips.push({ kind: "mes", label: periodScopeLabel() });
   for (const sku of state.sku) {
     const desc = state.skuDesc.get(sku);
     chips.push({
@@ -626,7 +656,7 @@ function renderChips() {
 function removeChipFilter(chip) {
   if (!chip) return;
   if (chip.kind === "mes") {
-    state.periodMonth = null;
+    state.period = null;
   } else if (chip.kind === "sku") {
     if (chip.value) {
       state.sku.delete(chip.value);
@@ -665,7 +695,7 @@ function removeChipFilter(chip) {
 
 function clearDimFilter(dimKey) {
   if (dimKey === "mes") {
-    state.periodMonth = null;
+    state.period = null;
   } else if (dimKey === "sku") {
     state.sku.clear();
     state.skuDesc.clear();
@@ -704,7 +734,20 @@ function roundTopBar(ctx, x, y, w, h, r) {
   ctx.closePath();
 }
 
-function drawTrend(canvas, series) {
+function trendAxisLabel(value) {
+  if (value >= 1e6) {
+    const n = value / 1e6;
+    return n.toLocaleString("pt-BR", { maximumFractionDigits: n >= 10 ? 0 : 1 }) + " mi";
+  }
+  if (value >= 1e3) {
+    const n = value / 1e3;
+    return n.toLocaleString("pt-BR", { maximumFractionDigits: n >= 100 ? 0 : 1 }) + " mil";
+  }
+  return Math.round(value).toLocaleString("pt-BR");
+}
+
+function drawTrend(canvas) {
+  const model = charts.trendModel;
   const ctx = canvas.getContext("2d");
   const dpr = window.devicePixelRatio || 1;
   const w = canvas.clientWidth || 640;
@@ -713,15 +756,25 @@ function drawTrend(canvas, series) {
   canvas.height = Math.round(h * dpr);
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   ctx.clearRect(0, 0, w, h);
+  if (!model) {
+    canvas._trendHit = null;
+    return;
+  }
+  const series = model.series || [];
+  const categories = model.categories || [];
   const pad = { t: 22, r: 16, b: 40, l: 58 };
   const plotW = w - pad.l - pad.r;
   const plotH = h - pad.t - pad.b;
-  const max = Math.max(...series.flatMap((s) => s.fat), 1);
-  const n = 12;
+  const nums = [];
+  for (const item of series) {
+    for (const value of item.fat) if (value != null && Number.isFinite(value)) nums.push(value);
+  }
+  const max = Math.max(1, ...nums);
+  const n = Math.max(categories.length, 1);
   const groupW = plotW / n;
   const seriesCount = Math.max(series.length, 1);
-  const gap = seriesCount > 1 ? 3 : 0;
-  const barW = Math.max(4, Math.min(seriesCount === 1 ? 28 : 14, (groupW * 0.72 - gap * (seriesCount - 1)) / seriesCount));
+  const gap = model.kind === "single" || seriesCount < 2 ? 0 : 3;
+  const barW = Math.max(4, Math.min(model.kind === "single" ? 42 : 16, (groupW * 0.72 - gap * (seriesCount - 1)) / seriesCount));
   const totalBarsW = seriesCount * barW + (seriesCount - 1) * gap;
   const hover = charts.hoverMonth;
   const hits = [];
@@ -739,41 +792,82 @@ function drawTrend(canvas, series) {
     ctx.moveTo(pad.l, y);
     ctx.lineTo(w - pad.r, y);
     ctx.stroke();
-    const label = value >= 1e6 ? `${(value / 1e6).toFixed(1)} mi` : value >= 1e3 ? `${Math.round(value / 1e3)} mil` : `${Math.round(value)}`;
+    const label = trendAxisLabel(value);
     ctx.fillText(label, pad.l - 8, y);
   }
 
-  for (let i = 0; i < n; i++) {
+  categories.forEach((category, i) => {
     const gx = pad.l + i * groupW;
-    const selected = state.periodMonth === i;
+    const selected = model.selected === i;
     const isHot = hover === i;
     if (selected || isHot) {
       ctx.fillStyle = selected ? "rgba(181,25,26,0.08)" : "rgba(27,42,74,0.04)";
       ctx.fillRect(gx + 1, pad.t, groupW - 2, plotH);
     }
-    hits.push({ index: i, x: gx, y: pad.t, w: groupW, h: plotH });
+    hits.push({ index: i, x: gx, y: pad.t, w: groupW, h: plotH, allow: category.allow !== false });
+    ctx.fillStyle = category.muted ? "#b0b4be" : "#667085";
+    ctx.font = "12px Outfit, sans-serif";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "alphabetic";
+    ctx.fillText(category.label, gx + groupW / 2, h - 12);
+  });
 
-    series.forEach((s, sIndex) => {
-      const fat = s.fat[i] || 0;
-      if (fat <= 0) return;
+  if (model.kind === "line") {
+    series.forEach((item) => {
+      ctx.beginPath();
+      ctx.globalAlpha = item.emphasis ? 1 : 0.55;
+      let started = false;
+      const points = [];
+      item.fat.forEach((value, index) => {
+        if (value == null) return;
+        const x = pad.l + index * groupW + groupW / 2;
+        const y = pad.t + plotH - (Math.max(0, value) / max) * plotH;
+        points.push([x, y]);
+        if (!started) { ctx.moveTo(x, y); started = true; }
+        else ctx.lineTo(x, y);
+      });
+      ctx.strokeStyle = item.color;
+      ctx.lineWidth = item.emphasis ? 2.6 : 1.6;
+      ctx.stroke();
+      if (item.emphasis && points.length) {
+        ctx.beginPath();
+        points.forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y)));
+        ctx.lineTo(points[points.length - 1][0], pad.t + plotH);
+        ctx.lineTo(points[0][0], pad.t + plotH);
+        ctx.closePath();
+        ctx.fillStyle = item.color + "22";
+        ctx.fill();
+      }
+      points.forEach(([x, y]) => {
+        ctx.beginPath();
+        ctx.arc(x, y, item.emphasis ? 3.4 : 2.4, 0, Math.PI * 2);
+        ctx.fillStyle = item.color;
+        ctx.fill();
+      });
+      ctx.globalAlpha = 1;
+    });
+    canvas._trendHit = { pad, plotW, plotH, n, hits, series };
+    return;
+  }
+
+  categories.forEach((category, i) => {
+    const gx = pad.l + i * groupW;
+    const selected = model.selected === i;
+    series.forEach((item, sIndex) => {
+      const fat = item.fat[i];
+      if (fat == null || fat <= 0) return;
       const bh = Math.max(2, (fat / max) * plotH);
       const x = gx + (groupW - totalBarsW) / 2 + sIndex * (barW + gap);
       const y = pad.t + plotH - bh;
-      ctx.globalAlpha = s.emphasis ? 1 : 0.55;
-      ctx.fillStyle = selected && s.emphasis ? "#1c2230" : s.color;
+      const color = model.kind === "single"
+        ? (category.year === state.analysisYear ? "#b5191a" : "#9aa3b5")
+        : (selected && item.emphasis ? "#1c2230" : item.color);
+      ctx.globalAlpha = item.emphasis || model.kind === "single" ? 1 : 0.55;
+      ctx.fillStyle = color;
       roundTopBar(ctx, x, y, barW, bh, 4);
       ctx.fill();
     });
     ctx.globalAlpha = 1;
-  }
-
-  ctx.fillStyle = "#667085";
-  ctx.font = "12px Outfit, sans-serif";
-  ctx.textAlign = "center";
-  ctx.textBaseline = "alphabetic";
-  MONTHS_SHORT.forEach((m, i) => {
-    const x = pad.l + i * groupW + groupW / 2;
-    ctx.fillText(m, x, h - 12);
   });
 
   canvas._trendHit = { pad, plotW, plotH, n, hits, series };
@@ -800,25 +894,47 @@ function tipPctHtml(pct) {
   return `<em class="${tipPctClass(pct)}">${pctFmt.format(pct)}</em>`;
 }
 
-function trendTooltipHtml(monthIndex) {
-  const series = charts.trendSeries || [];
-  const byYear = new Map(series.map((s) => [s.year, s]));
-  const month = MONTHS[monthIndex] || MONTHS_SHORT[monthIndex];
-  const rows = series.map((s) => {
-    const fat = s.fat[monthIndex] || 0;
-    const vol = s.vol[monthIndex] || 0;
-    const prev = byYear.get(s.year - 1);
-    const fatPct = prev ? pctChange(fat, prev.fat[monthIndex] || 0) : null;
-    const volPct = prev ? pctChange(vol, prev.vol[monthIndex] || 0) : null;
-    const evo = prev
-      ? `<div class="row tip-evo"><span>Evolução vs ${s.year - 1}</span><b>Fat. ${tipPctHtml(fatPct)} · Vol. ${tipPctHtml(volPct)}</b></div>`
-      : `<div class="row tip-evo"><span>Evolução</span><b>—</b></div>`;
+function trendTooltipHtml(index) {
+  const model = charts.trendModel;
+  if (!model) return "";
+  const category = model.categories[index];
+  if (!category) return "";
+  const rows = model.series.map((item, sIndex) => {
+    const fat = item.fat[index];
+    const vol = item.vol[index];
+    const fatShown = fat == null ? "—" : moneyFmt.format(fat);
+    const volShown = vol == null ? "—" : `${numFmt.format(vol)} un.`;
+    let prevFat = null;
+    let prevVol = null;
+    let prevLabel = "";
+    if (model.kind === "single") {
+      if (index > 0) {
+        prevFat = model.series[0].fat[index - 1];
+        prevVol = model.series[0].vol[index - 1];
+        prevLabel = model.categories[index - 1]?.label || "";
+      }
+    } else if (sIndex > 0) {
+      const prev = model.series[sIndex - 1];
+      prevFat = prev.fat[index];
+      prevVol = prev.vol[index];
+      prevLabel = String(prev.year);
+    }
+    const fatPct = prevLabel && fat != null ? pctChange(fat || 0, prevFat || 0) : null;
+    const volPct = prevLabel && vol != null ? pctChange(vol || 0, prevVol || 0) : null;
+    const evo = prevLabel
+      ? `<div class="row tip-evo"><span>Evolução vs ${esc(prevLabel)}</span><b>Fat. ${tipPctHtml(fatPct)} · Vol. ${tipPctHtml(volPct)}</b></div>`
+      : "";
+    const label = model.kind === "single" ? category.label : item.year;
+    const color = model.kind === "single"
+      ? (category.year === state.analysisYear ? "#b5191a" : "#9aa3b5")
+      : item.color;
     return `<div class="tip-block">
-      <div class="row"><span><i class="dot" style="background:${s.color}"></i>${s.year}</span><b>${moneyFmt.format(fat)} · ${numFmt.format(vol)} un.</b></div>
+      <div class="row"><span><i class="dot" style="background:${color}"></i>${esc(label)}</span><b>${fatShown} · ${volShown}</b></div>
       ${evo}
     </div>`;
   }).join("");
-  return `<b>${esc(month)}</b><div class="tip-k">Faturamento · Volume</div>${rows}`;
+  const extra = category.allow === false ? `<div>Ainda sem movimento na base.</div>` : "";
+  return `<b>${esc(category.label)}</b>${extra}<div class="tip-k">Faturamento · Volume</div>${rows}`;
 }
 
 function drawDonut(canvas, slices, total) {
@@ -867,9 +983,9 @@ function renderKpis(curRows, prevRows, stopped, novos) {
   const cur = sumRows(curRows);
   const prev = sumRows(prevRows);
   const win = windowFor(state.analysisYear);
-  const range = win.kind === "month"
+  const range = win.m0 === win.m1
     ? `${MONTHS[win.m0]}/${win.y}`
-    : `jan–${MONTHS_SHORT[win.m1]}/${win.y}`;
+    : `${MONTHS_SHORT[win.m0]}–${MONTHS_SHORT[win.m1]}/${win.y}`;
 
   $("kpiRevenueLabel").textContent = `Faturamento · ${range}`;
   $("kpiRevenue").textContent = moneyFmt.format(cur.fat);
@@ -926,29 +1042,128 @@ function renderKpis(curRows, prevRows, stopped, novos) {
   }
 }
 
+function sumMonths(rows, year, m0, m1) {
+  let fat = 0;
+  let vol = 0;
+  for (const row of rows) {
+    if (row.y !== year || row.m < m0 || row.m > m1) continue;
+    fat += row.fat;
+    vol += row.vol;
+  }
+  return { fat, vol };
+}
+
+function trendBuckets(view) {
+  if (view === "trimestral") {
+    return [0, 1, 2, 3].map((q) => ({ label: quarterLabel(q), m0: q * 3, m1: q * 3 + 2, type: "quarter", index: q }));
+  }
+  if (view === "semestral") {
+    return [0, 1].map((s) => ({ label: semesterLabel(s), m0: s * 6, m1: s * 6 + 5, type: "semester", index: s }));
+  }
+  return MONTHS_SHORT.map((label, month) => ({ label, m0: month, m1: month, type: "month", index: month }));
+}
+
 function renderTrend(rows) {
-  const years = state.meta.years.slice(-3);
-  const series = years.map((y) => {
-    const fat = Array(12).fill(0);
-    const vol = Array(12).fill(0);
-    for (const r of rows) {
-      if (r.y !== y) continue;
-      fat[r.m] += r.fat;
-      vol[r.m] += r.vol;
+  const view = state.trendView || "mensal";
+  const anchor = state.meta.lastMonth[state.analysisYear] ?? 11;
+  const compareYears = state.meta.years.slice(-3);
+  let categories;
+  let series;
+  let kind;
+  let note;
+  let selected = null;
+
+  if (view === "anual") {
+    const shown = state.meta.years;
+    const m1 = Math.max(0, anchor);
+    categories = shown.map((year) => ({
+      label: String(year),
+      allow: true,
+      muted: false,
+      type: "year",
+      index: year,
+      year
+    }));
+    const fat = [];
+    const vol = [];
+    for (const year of shown) {
+      const sum = sumMonths(rows, year, 0, m1);
+      fat.push(sum.fat);
+      vol.push(sum.vol);
     }
-    return {
-      year: y,
-      color: y === state.analysisYear ? "#b5191a" : "#9aa3b5",
-      fat,
-      vol,
-      emphasis: y === state.analysisYear
-    };
-  });
+    series = [{ year: state.analysisYear, color: "#b5191a", fat, vol, emphasis: true }];
+    kind = "single";
+    selected = shown.indexOf(state.analysisYear);
+    note = `Cada barra soma ${capMonth(MONTHS[0])} a ${capMonth(MONTHS[m1])} do respectivo ano.`;
+  } else {
+    const buckets = trendBuckets(view);
+    categories = buckets.map((bucket) => ({
+      ...bucket,
+      allow: bucket.m0 <= anchor,
+      muted: bucket.m0 > anchor
+    }));
+    series = compareYears.map((year) => {
+      const last = state.meta.lastMonth[year] ?? -1;
+      let runningFat = 0;
+      let runningVol = 0;
+      const fat = [];
+      const vol = [];
+      for (const bucket of buckets) {
+        if (view === "acumulada") {
+          if (last < 0 || bucket.m0 > last) {
+            fat.push(null);
+            vol.push(null);
+            continue;
+          }
+          const sum = sumMonths(rows, year, bucket.m0, Math.min(bucket.m1, last));
+          runningFat += sum.fat;
+          runningVol += sum.vol;
+          fat.push(runningFat);
+          vol.push(runningVol);
+        } else {
+          const sum = sumMonths(rows, year, bucket.m0, bucket.m1);
+          fat.push(sum.fat);
+          vol.push(sum.vol);
+        }
+      }
+      return {
+        year,
+        color: year === state.analysisYear ? "#b5191a" : "#9aa3b5",
+        fat,
+        vol,
+        emphasis: year === state.analysisYear
+      };
+    });
+    kind = view === "acumulada" ? "line" : "group";
+    if (state.period) {
+      const found = categories.findIndex((category) => category.type === state.period.type && category.index === state.period.index);
+      selected = found >= 0 ? found : null;
+    }
+    note = {
+      mensal: "Barras lado a lado por ano. Clique num mês para usá-lo nos indicadores.",
+      trimestral: "Trimestres somados. Clique num trimestre para usá-lo nos indicadores.",
+      semestral: "Semestres somados. Clique num semestre para usá-lo nos indicadores.",
+      acumulada: "Soma corrida mês a mês. A linha para no último mês com movimento."
+    }[view];
+  }
+
+  charts.trendModel = { view, kind, categories, series, selected, note };
   charts.trendSeries = series;
-  drawTrend($("trend"), series);
+  drawTrend($("trend"));
+  const titles = {
+    mensal: "Evolução mensal",
+    trimestral: "Evolução trimestral",
+    semestral: "Evolução semestral",
+    anual: "Evolução anual",
+    acumulada: "Evolução acumulada"
+  };
   const scope = scopeLabel();
-  $("chartSub").textContent = scope ? `${scope} · ${years.join(" · ")}` : `Comparativo ${years.join(" · ")}`;
-  $("chartSummary").textContent = `Evolução mensal de faturamento e volume para ${years.join(", ")}${scope ? ` no recorte ${scope}` : ""}.`;
+  $("chartTitle").textContent = titles[view] || "Evolução";
+  $("chartSub").textContent = scope ? `${note} ${scope}.` : note;
+  $("chartSummary").textContent = `${$("chartTitle").textContent}. ${note}${scope ? ` Recorte: ${scope}.` : ""}`;
+  document.querySelectorAll("#viewSeg button").forEach((button) => {
+    button.setAttribute("aria-pressed", String(button.dataset.view === view));
+  });
 }
 
 function renderDonut(rows) {
@@ -1956,7 +2171,8 @@ async function ingestText(text, fileName) {
     state.fileName = fileName || "sell-out.csv";
     state.menuOptions = {};
     state.filters = { vendedor: new Set(), grupo: new Set(), loja: new Set(), uf: new Set(), categoria: new Set() };
-    state.periodMonth = null;
+    state.period = null;
+    state.trendView = "mensal";
     state.sku = new Set();
     state.skuDesc = new Map();
     state.novos = false;
@@ -2095,7 +2311,7 @@ function toggleFilter(dim, value, on) {
 
 function clearFilters() {
   for (const dim of DIMS) state.filters[dim.key].clear();
-  state.periodMonth = null;
+  state.period = null;
   state.itemGrupo = "";
   state.itemLoja = "";
   state.itemCategoria = "";
@@ -2220,7 +2436,7 @@ function wire() {
     const yearBtn = t.closest("[data-year]");
     if (yearBtn) {
       state.analysisYear = Number(yearBtn.getAttribute("data-year"));
-      state.periodMonth = null;
+      state.period = null;
       renderAll();
       return;
     }
@@ -2536,10 +2752,10 @@ function wire() {
     if (!state.meta) return;
     const spot = trendMonthAt(trend, e.clientX, e.clientY);
     const next = spot ? spot.index : null;
-    trend.style.cursor = spot ? "pointer" : "default";
+    trend.style.cursor = spot ? (spot.allow === false ? "not-allowed" : "pointer") : "default";
     if (charts.hoverMonth !== next) {
       charts.hoverMonth = next;
-      drawTrend(trend, charts.trendSeries || []);
+      drawTrend(trend);
     }
     if (spot == null) {
       hideTip("trend");
@@ -2550,13 +2766,33 @@ function wire() {
   trend.addEventListener("pointerleave", () => {
     charts.hoverMonth = null;
     hideTip("trend");
-    if (state.meta) drawTrend(trend, charts.trendSeries || []);
+    if (state.meta) drawTrend(trend);
   });
   trend.addEventListener("click", (e) => {
-    if (!state.meta) return;
+    if (!state.meta || !charts.trendModel) return;
     const spot = trendMonthAt(trend, e.clientX, e.clientY);
-    if (!spot) return;
-    state.periodMonth = state.periodMonth === spot.index ? null : spot.index;
+    if (!spot || spot.allow === false) return;
+    const category = charts.trendModel.categories[spot.index];
+    if (!category) return;
+    if (state.trendView === "anual") {
+      state.analysisYear = category.year;
+      state.period = null;
+      renderAll();
+      return;
+    }
+    const same = state.period && state.period.type === category.type && state.period.index === category.index;
+    state.period = same ? null : { type: category.type, index: category.index, m0: category.m0, m1: category.m1 };
+    renderAll();
+  });
+  $("viewSeg")?.addEventListener("click", (e) => {
+    const button = e.target.closest("[data-view]");
+    if (!button) return;
+    const view = button.dataset.view;
+    if (view === "trimestral" && state.period?.type !== "quarter") state.period = null;
+    else if (view === "semestral" && state.period?.type !== "semester") state.period = null;
+    else if (view === "anual") state.period = null;
+    else if ((view === "mensal" || view === "acumulada") && state.period && state.period.type !== "month") state.period = null;
+    state.trendView = view;
     renderAll();
   });
 

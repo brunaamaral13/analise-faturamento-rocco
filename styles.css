@@ -683,6 +683,9 @@ button.kpi[aria-pressed="true"] {
   display: flex; justify-content: space-between; gap: 12px; align-items: flex-start;
   margin-bottom: 14px;
 }
+.chart-card .card-head { flex-wrap: wrap; align-items: center; }
+.seg-views { margin-left: auto; }
+.seg-views button { white-space: nowrap; }
 .card-head h2 { font-size: 18px; letter-spacing: -0.02em; }
 .card-head p { color: var(--muted); font-size: 12.5px; margin-top: 3px; line-height: 1.4; }
 

@@ -403,6 +403,12 @@ function quarterMonths(q) {
   const cap = (name) => name.charAt(0).toUpperCase() + name.slice(1);
   return cap(MONTHS_SHORT[q * 3]) + " a " + cap(MONTHS_SHORT[q * 3 + 2]);
 }
+function semesterMonths(s) {
+  const cap = (name) => name.charAt(0).toUpperCase() + name.slice(1);
+  return s === 0
+    ? cap(MONTHS_SHORT[0]) + " a " + cap(MONTHS_SHORT[5])
+    : cap(MONTHS_SHORT[6]) + " a " + cap(MONTHS_SHORT[11]);
+}
 function rangeLabel(m0, m1) {
   if (m0 === m1) return MONTHS[m0];
   if (m0 === 0 && m1 === 11) return "ano fechado";
@@ -433,6 +439,10 @@ function windowOf() {
   if (state.period?.type === "quarter") {
     const q = state.period.index;
     return { year, m0: q * 3, m1: q * 3 + 2, kind: "quarter", q };
+  }
+  if (state.period?.type === "semester") {
+    const s = state.period.index;
+    return { year, m0: s * 6, m1: s * 6 + 5, kind: "semester", s };
   }
   return { year, m0: 0, m1: safeCut, kind: "ytd" };
 }
@@ -543,6 +553,7 @@ function activeFilterGroups() {
   }
   if (state.period?.type === "month") groups.push({ key: "period", label: "Período", values: [MONTHS[state.period.index]] });
   if (state.period?.type === "quarter") groups.push({ key: "period", label: "Período", values: [quarterMonths(state.period.index)] });
+  if (state.period?.type === "semester") groups.push({ key: "period", label: "Período", values: [semesterMonths(state.period.index)] });
   if (state.cohort) groups.push({ key: "cohort", label: "Corte", values: [COHORTS[state.cohort]] });
   if (state.clientId) {
     const client = state.clients.find((item) => item.id === state.clientId);
@@ -715,6 +726,32 @@ function buildTrendModel(list, win) {
     };
   }
 
+  if (state.view === "semestral") {
+    const categories = [0, 1].map((s) => ({
+      label: semesterMonths(s),
+      allow: s * 6 <= anchor,
+      muted: s * 6 > anchor,
+      semester: s
+    }));
+    const series = years.map((year) => {
+      const arr = sumSeries(list, year, 12);
+      const values = [0, 1].map((s) => {
+        let total = 0;
+        for (let m = s * 6; m < s * 6 + 6; m++) total += arr[m];
+        return total;
+      });
+      return { year, color: yearColor(year), values, emphasis: year === state.analysisYear };
+    });
+    return {
+      view: "semestral",
+      kind: "group",
+      categories,
+      series,
+      selected: state.period?.type === "semester" ? state.period.index : null,
+      note: "Semestres somados. Meses ainda sem movimento na base não entram no recorte."
+    };
+  }
+
   const categories = MONTHS_SHORT.map((label, index) => ({
     label,
     allow: index <= anchor,
@@ -766,6 +803,14 @@ function ufSeries(clients, year, categories) {
       return total;
     });
   }
+  if (state.view === "semestral") {
+    return categories.map((category) => {
+      if (last < 0 || category.semester * 6 > last) return null;
+      let total = 0;
+      for (let m = category.semester * 6; m < category.semester * 6 + 6; m++) total += arr[m];
+      return total;
+    });
+  }
   if (state.view === "acumulada") {
     let running = 0;
     return arr.map((value, month) => {
@@ -798,6 +843,13 @@ function buildUfModel(list, win) {
       allow: quarter * 3 <= anchor,
       muted: quarter * 3 > anchor,
       quarter
+    }));
+  } else if (state.view === "semestral") {
+    categories = [0, 1].map((semester) => ({
+      label: semesterMonths(semester),
+      allow: semester * 6 <= anchor,
+      muted: semester * 6 > anchor,
+      semester
     }));
   } else {
     categories = MONTHS_SHORT.map((label, month) => ({
@@ -838,7 +890,9 @@ function buildUfModel(list, win) {
     ? categories.findIndex((category) => category.year === state.analysisYear)
     : state.view === "trimestral"
       ? (state.period?.type === "quarter" ? state.period.index : null)
-      : (state.period?.type === "month" ? state.period.index : null);
+      : state.view === "semestral"
+        ? (state.period?.type === "semester" ? state.period.index : null)
+        : (state.period?.type === "month" ? state.period.index : null);
   return { view: state.view, categories, rows, selected, year: state.analysisYear };
 }
 
@@ -1321,6 +1375,7 @@ function updateCharts(listForTrend, listForDonut, win) {
   $("chartTitle").textContent = {
     mensal: "Evolução mensal",
     trimestral: "Evolução trimestral",
+    semestral: "Evolução semestral",
     anual: "Evolução anual",
     acumulada: "Evolução acumulada"
   }[state.view];
@@ -1365,6 +1420,7 @@ function renderUfList(model, win) {
   const viewLabel = {
     mensal: "Mês a mês",
     trimestral: "Por trimestre",
+    semestral: "Por semestre",
     anual: "Por ano",
     acumulada: "Acumulada"
   }[state.view];
@@ -1810,6 +1866,7 @@ function renderChips() {
   }
   if (state.period?.type === "month") chips.push({ kind: "period", label: MONTHS[state.period.index] });
   if (state.period?.type === "quarter") chips.push({ kind: "period", label: quarterMonths(state.period.index) });
+  if (state.period?.type === "semester") chips.push({ kind: "period", label: semesterMonths(state.period.index) });
   const picked = state.filters.cliente;
   if (picked.size > 8) chips.push({ kind: "clients", label: picked.size + " clientes" });
   else {
@@ -2154,6 +2211,7 @@ function pickPeriod(type, index) {
   const anchor = state.meta.lastMonth[state.meta.maxYear];
   if (type === "month" && index > anchor) return;
   if (type === "quarter" && index * 3 > anchor) return;
+  if (type === "semester" && index * 6 > anchor) return;
   if (state.period && state.period.type === type && state.period.index === index) state.period = null;
   else state.period = { type, index };
   renderAll();
@@ -2291,8 +2349,9 @@ function bind() {
     if (!button) return;
     const view = button.dataset.view;
     if (view === "trimestral" && state.period?.type !== "quarter") state.period = null;
+    if (view === "semestral" && state.period?.type !== "semester") state.period = null;
     if (view === "anual") state.period = null;
-    if ((view === "mensal" || view === "acumulada") && state.period?.type === "quarter") state.period = null;
+    if ((view === "mensal" || view === "acumulada") && (state.period?.type === "quarter" || state.period?.type === "semester")) state.period = null;
     state.view = view;
     renderAll();
   });
@@ -2449,6 +2508,7 @@ function bind() {
       return;
     }
     if (state.view === "trimestral") pickPeriod("quarter", category.quarter);
+    else if (state.view === "semestral") pickPeriod("semester", category.semester);
     else pickPeriod("month", category.month);
   });
   $("ufSort").addEventListener("click", (event) => {
@@ -2522,6 +2582,7 @@ function bind() {
       return;
     }
     if (state.view === "trimestral") pickPeriod("quarter", category.quarter);
+    else if (state.view === "semestral") pickPeriod("semester", category.semester);
     else pickPeriod("month", category.month);
   });
 
