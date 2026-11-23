@@ -800,3 +800,11 @@ body.is-embed .app { display: block; min-height: 0; }
 body.is-embed .top { display: none; }
 body.is-embed .main-inner { max-width: none; padding: 0 0 48px; }
 body.is-embed .empty { min-height: 0; }
+
+/* Portal: reforça modo somente visualização (sem importar CSV) */
+body.is-embed.is-portal-readonly #btnFile,
+body.is-embed.is-portal-readonly #file,
+body.is-embed.is-portal-readonly #pick {
+  display: none !important;
+  pointer-events: none !important;
+}

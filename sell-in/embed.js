@@ -1,7 +1,25 @@
 "use strict";
 
-const embed = new URLSearchParams(location.search).get("embed") === "1";
+const params = new URLSearchParams(location.search);
+const embed = params.get("embed") === "1";
+const portalReadonly = params.get("portal") === "1" || params.get("readonly") === "1";
 if (embed) document.body.classList.add("is-embed");
+if (portalReadonly) {
+  document.body.classList.add("is-portal-readonly");
+  const lockImport = () => {
+    ["btnFile", "file", "pick"].forEach((id) => {
+      const el = document.getElementById(id);
+      if (!el) return;
+      el.hidden = true;
+      el.setAttribute("disabled", "disabled");
+    });
+  };
+  if (document.readyState === "loading") {
+    window.addEventListener("DOMContentLoaded", lockImport);
+  } else {
+    lockImport();
+  }
+}
 
 function deliverSellIn(buffer, name) {
   try {
