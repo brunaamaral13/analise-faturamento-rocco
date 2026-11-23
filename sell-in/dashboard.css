@@ -326,7 +326,7 @@ body.is-drag .drop { border-color: var(--red); transform: translateY(-2px); }
 }
 .chip button { border: 0; background: #f3f4f8; width: 18px; height: 18px; border-radius: 50%; line-height: 1; }
 
-.kpis { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 16px; margin-top: 8px; }
+.kpis { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; margin-top: 8px; }
 .insights { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 20px; margin-top: 10px; }
 .kpi {
   position: relative; overflow: hidden;
@@ -807,4 +807,21 @@ body.is-embed.is-portal-readonly #file,
 body.is-embed.is-portal-readonly #pick {
   display: none !important;
   pointer-events: none !important;
+}
+
+/* Portal cliente: só KPIs + gráfico de evolução de faturamento */
+body.is-embed.is-portal-readonly .filters,
+body.is-embed.is-portal-readonly #sec-visao > .hint,
+body.is-embed.is-portal-readonly #chips,
+body.is-embed.is-portal-readonly #insights,
+body.is-embed.is-portal-readonly article.donut-card,
+body.is-embed.is-portal-readonly .donut-card,
+body.is-embed.is-portal-readonly #sec-uf,
+body.is-embed.is-portal-readonly .grid-bot,
+body.is-embed.is-portal-readonly #sec-alertas,
+body.is-embed.is-portal-readonly #sec-rank,
+body.is-embed.is-portal-readonly [data-goto="sec-uf"],
+body.is-embed.is-portal-readonly [data-goto="sec-alertas"],
+body.is-embed.is-portal-readonly [data-goto="sec-rank"] {
+  display: none !important;
 }

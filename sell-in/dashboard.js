@@ -1563,21 +1563,6 @@ function renderKpis(win, list) {
     : "sem base em " + (win.year - 1);
   tween($("kpiActive"), active, (value) => Math.round(value).toLocaleString("pt-BR"));
   $("kpiActiveSub").textContent = "de " + list.length.toLocaleString("pt-BR") + " no recorte";
-  const valor = list.reduce((sum, client) => sum + (client.valor || 0), 0);
-  const monthly = months ? cur / months : 0;
-  if (!state.meta.hasValor) {
-    tweenMoney("kpiValor", null);
-    $("kpiValorSub").textContent = "coluna ausente na base";
-  } else {
-    tweenMoney("kpiValor", valor);
-    if (monthly > 0.5 && valor > 0.5) {
-      $("kpiValorSub").textContent = "equivale a " + formatCover(valor / monthly) + " de faturamento";
-    } else if (valor > 0.5) {
-      $("kpiValorSub").textContent = "sem faturamento no intervalo";
-    } else {
-      $("kpiValorSub").textContent = "sem valor no recorte";
-    }
-  }
   if (ticket == null) tweenMoney("kpiTicket", null);
   else tweenMoney("kpiTicket", ticket);
   $("kpiTicketSub").textContent = "média de " + months + (months > 1 ? " meses" : " mês");
