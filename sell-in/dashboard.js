@@ -13,27 +13,18 @@ const DIMS = [
   { key: "tipo", label: "Tipo" },
   { key: "uf", label: "UF" }
 ];
-const DONUT_DIMS = [
-  ...DIMS,
-  { key: "saldo", label: "Saldo consignado", filterKey: "cliente" }
-];
+const DONUT_DIMS = [...DIMS];
 const COHORTS = {
   up: "Cresceram",
   down: "Caíram",
   low: "Abaixo de R$ 1.500",
   idle: "Sem faturar",
-  new: "Novos",
-  stuck: "Saldo consignado",
-  replenish: "Sem saldo consignado"
+  new: "Novos"
 };
 const LOW_TICKET = 1500;
 const IDLE_GAP = 3;
-const STOCK_STUCK = 200;
-const STOCK_LOW = 100;
-const CONSIGN_TYPES = new Set(["LIVRARIA", "DISTRIBUIDOR", "HUDSON"]);
 const PINNED_REDES = ["VILA", "TRAVESSA", "CURITIBA", "VANGUARDA"];
 const SLICE_COLORS = ["#b5191a","#e0a106","#0f7a5a","#1b2a4a","#7c4d9e","#d46a2e","#3d7ea6","#5b8c5a","#b08968","#8d3b4c","#4c6e8a","#c47b9b","#3f6f8f","#a33b4a"];
-const ALERT_ICON = `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.5 2.8 20h18.4L12 3.5z"/><path d="M12 10v4.2"/><path d="M12 16.8v.6"/></svg>`;
 
 const state = {
   clients: [],
@@ -94,12 +85,6 @@ function esc(s) {
   return String(s ?? "").replace(/[&<>"']/g, (ch) => ({
     "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
   }[ch]));
-}
-
-function parseStock(raw) {
-  const text = String(raw ?? "").replace(/\u00a0/g, " ").trim().replace(/R\$/gi, "").replace(/\s/g, "");
-  if (/^\d{1,3}(\.\d{3})+$/.test(text)) return Number(text.replace(/\./g, ""));
-  return Math.round(parseMoney(raw));
 }
 
 function parseMoney(raw) {
@@ -189,8 +174,6 @@ function parseWorkbook(text) {
   const colUf = colIndex(header, (n) => n === "uf");
   const colVend = colIndex(header, (n) => n.includes("vendedor") || n === "rca" || n.includes("representante"));
   const colCnpj = colIndex(header, (n) => n.includes("cnpj"));
-  const colSaldo = colIndex(header, (n) => n.includes("saldo") && n.includes("consign"));
-  const colValor = colIndex(header, (n) => n.includes("valor") && n.includes("consign"));
   if (colNome < 0) throw new Error("Não encontrei a coluna CLIENTE.");
 
   const idCols = [colNome, colCod, colTipo, colRede, colUf, colVend, colCnpj].filter((i) => i >= 0);
@@ -264,15 +247,10 @@ function parseWorkbook(text) {
         uf: colUf >= 0 ? cleanDim(cells[colUf], "Sem UF") : "Sem UF",
         vendedor: colVend >= 0 ? cleanDim(cells[colVend], "Sem vendedor") : "Sem vendedor",
         cnpj: colCnpj >= 0 ? (cells[colCnpj] || "").trim() : "",
-        saldo: colSaldo >= 0 ? parseStock(cells[colSaldo]) : 0,
-        valor: colValor >= 0 ? parseMoney(cells[colValor]) : 0,
         series: {}
       };
       for (const year of years) client.series[year] = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
       map.set(id, client);
-    } else {
-      if (colSaldo >= 0) client.saldo += parseStock(cells[colSaldo]);
-      if (colValor >= 0) client.valor += parseMoney(cells[colValor]);
     }
     for (const year of years) {
       const cols = slots[year];
@@ -340,7 +318,6 @@ function parseWorkbook(text) {
       anchor,
       newSince,
       newSinceLabel,
-      hasValor: colValor >= 0,
       anchorLabel: MONTHS[Math.max(0, lastMonth[maxYear])] + "/" + maxYear
     },
     options
@@ -463,37 +440,16 @@ function metrics(client, year, m0, m1) {
 function isUp(met) { return met.cur > met.prev + 0.5 && met.cur > 0.5; }
 function isDown(met) { return met.prev > 0.5 && met.cur < met.prev - 0.5; }
 function isLow(client, met) {
-  return client.saldo > 0.5 && met.cur > 0.5 && met.avg < LOW_TICKET;
-}
-function isStuck(client) { return client.idle && client.saldo >= STOCK_STUCK; }
-function isReplenish(client, met) {
-  return isDown(met) && client.saldo < STOCK_LOW && (client.saldo > 0.5 || CONSIGN_TYPES.has(client.tipo));
+  return met.cur > 0.5 && met.avg < LOW_TICKET;
 }
 function matchCohort(client, win, cohort) {
   if (cohort === "idle") return client.idle;
   if (cohort === "new") return client.novo;
-  if (cohort === "stuck") return isStuck(client);
   const met = metrics(client, win.year, win.m0, win.m1);
   if (cohort === "up") return isUp(met);
   if (cohort === "down") return isDown(met);
   if (cohort === "low") return isLow(client, met);
-  if (cohort === "replenish") return isReplenish(client, met);
   return true;
-}
-function formatBooks(n) {
-  const v = Math.round(Number(n) || 0);
-  const abs = Math.abs(v).toLocaleString("pt-BR");
-  return (v < 0 ? "-" : "") + abs + (Math.abs(v) === 1 ? " livro" : " livros");
-}
-function formatConsigned(n) {
-  const v = Math.round(Number(n) || 0);
-  const abs = Math.abs(v).toLocaleString("pt-BR");
-  const word = Math.abs(v) === 1 ? "livro consignado" : "livros consignados";
-  return (v < 0 ? "-" : "") + abs + " " + word;
-}
-function formatCover(months) {
-  const text = months.toLocaleString("pt-BR", { minimumFractionDigits: 1, maximumFractionDigits: 1 });
-  return text + (Math.abs(months - 1) < 0.05 ? " mês" : " meses");
 }
 function inDim(client, except) {
   for (const dim of DIMS) {
@@ -910,65 +866,33 @@ function donutFilterSet(dim = state.donutDim) {
 
 function buildDonut(list, win) {
   const dim = state.donutDim;
-  let slices;
-  if (dim === "saldo") {
-    slices = list
-      .filter((client) => client.valor > 0.5)
-      .map((client) => ({
-        key: client.id,
-        label: client.nome,
-        value: client.valor,
-        saldo: client.saldo,
-        meta: [client.tipo, client.uf].filter(Boolean).join(" · ")
-      }))
-      .sort((a, b) => b.value - a.value || a.label.localeCompare(b.label, "pt-BR"));
-    const limit = 8;
-    if (slices.length > limit) {
-      const head = slices.slice(0, limit);
-      const rest = slices.slice(limit);
-      const restValue = rest.reduce((sum, slice) => sum + slice.value, 0);
-      const restSaldo = rest.reduce((sum, slice) => sum + slice.saldo, 0);
-      slices = head;
-      if (restValue > 0.5) {
-        slices.push({
-          key: "Outros",
-          label: "Outros",
-          value: restValue,
-          saldo: restSaldo,
-          meta: rest.length + (rest.length === 1 ? " cliente" : " clientes"),
-          outros: true
-        });
-      }
+  const buckets = new Map();
+  for (const client of list) {
+    const key = client[dim];
+    buckets.set(key, (buckets.get(key) || 0) + metrics(client, win.year, win.m0, win.m1).cur);
+  }
+  let slices = [...buckets.entries()]
+    .map(([key, value]) => ({ key, label: key, value }))
+    .filter((slice) => dim === "vendedor" || slice.value > 0.5)
+    .sort((a, b) => b.value - a.value);
+  const limit = dim === "tipo" ? 16 : 8;
+  if (dim === "rede") {
+    const shown = new Set(slices.slice(0, limit).map((slice) => slice.key));
+    const head = slices.filter((slice) => shown.has(slice.key));
+    for (const key of PINNED_REDES) {
+      if (shown.has(key)) continue;
+      head.push({ key, label: key, value: buckets.get(key) || 0 });
+      shown.add(key);
     }
-  } else {
-    const buckets = new Map();
-    for (const client of list) {
-      const key = client[dim];
-      buckets.set(key, (buckets.get(key) || 0) + metrics(client, win.year, win.m0, win.m1).cur);
-    }
-    slices = [...buckets.entries()]
-      .map(([key, value]) => ({ key, label: key, value }))
-      .filter((slice) => dim === "vendedor" || slice.value > 0.5)
-      .sort((a, b) => b.value - a.value);
-    const limit = dim === "tipo" ? 16 : 8;
-    if (dim === "rede") {
-      const shown = new Set(slices.slice(0, limit).map((slice) => slice.key));
-      const head = slices.filter((slice) => shown.has(slice.key));
-      for (const key of PINNED_REDES) {
-        if (shown.has(key)) continue;
-        head.push({ key, label: key, value: buckets.get(key) || 0 });
-        shown.add(key);
-      }
-      head.sort((a, b) => b.value - a.value);
-      const rest = slices.reduce((sum, slice) => shown.has(slice.key) ? sum : sum + slice.value, 0);
-      slices = head;
-      if (rest > 0.5) slices.push({ key: "Outros", label: "Outros", value: rest, outros: true });
-    } else if (slices.length > limit) {
-      const head = slices.slice(0, limit);
-      const rest = slices.slice(limit).reduce((sum, slice) => sum + slice.value, 0);
-      slices = head;
-      if (rest > 0.5) slices.push({ key: "Outros", label: "Outros", value: rest, outros: true });
-    }
+    head.sort((a, b) => b.value - a.value);
+    const rest = slices.reduce((sum, slice) => shown.has(slice.key) ? sum : sum + slice.value, 0);
+    slices = head;
+    if (rest > 0.5) slices.push({ key: "Outros", label: "Outros", value: rest, outros: true });
+  } else if (slices.length > limit) {
+    const head = slices.slice(0, limit);
+    const rest = slices.slice(limit).reduce((sum, slice) => sum + slice.value, 0);
+    slices = head;
+    if (rest > 0.5) slices.push({ key: "Outros", label: "Outros", value: rest, outros: true });
   }
   const total = slices.reduce((sum, slice) => sum + slice.value, 0);
   return {
@@ -1393,26 +1317,20 @@ function updateCharts(listForTrend, listForDonut, win) {
 
   const selected = donutFilterSet();
   const total = donut.total;
-  const isSaldo = state.donutDim === "saldo";
   $("donutTotal").textContent = total ? formatCompact(total) : "—";
-  $("donutCaption").textContent = isSaldo ? "Saldo" : String(win.year);
-  $("donutSub").textContent = isSaldo
-    ? "Share do valor líquido consignado por cliente · posição atual"
-    : "Participação por " + donutDimMeta().label.toLowerCase() + " · " + rangeLabel(win.m0, win.m1);
+  $("donutCaption").textContent = String(win.year);
+  $("donutSub").textContent = "Participação por " + donutDimMeta().label.toLowerCase() + " · " + rangeLabel(win.m0, win.m1);
   $("donutLegend").innerHTML = donut.slices.length
     ? donut.slices.map((slice) => {
       const pct = total ? (slice.value / total) * 100 : 0;
       const dimmed = selected.size && !selected.has(slice.key) && !slice.outros ? " is-dim" : "";
-      const detail = isSaldo
-        ? `${formatCompact(slice.value)}${slice.saldo > 0.5 ? ` · ${formatBooks(slice.saldo)}` : ""}${slice.meta ? ` · ${slice.meta}` : ""}`
-        : formatCompact(slice.value);
       return `<button type="button" class="slice${dimmed}" data-slice="${esc(slice.key)}" data-outros="${slice.outros ? "1" : ""}" title="${esc(slice.label || slice.key)}">
         <i style="background:${slice.color}"></i>
-        <span>${esc(slice.label || slice.key)}<small>${esc(detail)}</small></span>
+        <span>${esc(slice.label || slice.key)}<small>${esc(formatCompact(slice.value))}</small></span>
         <b>${pct.toLocaleString("pt-BR", { maximumFractionDigits: 1 })}%</b>
       </button>`;
     }).join("")
-    : `<p class="empty-row">${isSaldo ? "Sem saldo consignado neste recorte." : "Sem faturamento neste recorte."}</p>`;
+    : `<p class="empty-row">Sem faturamento neste recorte.</p>`;
 }
 
 function renderUfList(model, win) {
@@ -1570,7 +1488,7 @@ function renderKpis(win, list) {
 
 function renderInsights(win) {
   const base = population({ win, focus: true, cohort: false });
-  const counts = { up: 0, down: 0, low: 0, idle: 0, new: 0, stuck: 0, replenish: 0 };
+  const counts = { up: 0, down: 0, low: 0, idle: 0, new: 0 };
   for (const client of base) {
     const met = metrics(client, win.year, win.m0, win.m1);
     if (isUp(met)) counts.up++;
@@ -1578,8 +1496,6 @@ function renderInsights(win) {
     if (isLow(client, met)) counts.low++;
     if (client.idle) counts.idle++;
     if (client.novo) counts.new++;
-    if (isStuck(client)) counts.stuck++;
-    if (isReplenish(client, met)) counts.replenish++;
   }
   for (const key of Object.keys(counts)) {
     const counter = $("n-" + key);
@@ -1589,8 +1505,6 @@ function renderInsights(win) {
     const tab = document.querySelector(`#alertTabs [data-tab="${key}"]`);
     if (tab) tab.setAttribute("aria-pressed", state.listTab === key ? "true" : "false");
   }
-  const stockTab = document.querySelector('#alertTabs [data-tab="stock"]');
-  if (stockTab) stockTab.setAttribute("aria-pressed", state.listTab === "stock" ? "true" : "false");
   return base;
 }
 
@@ -1599,20 +1513,16 @@ function renderAlerts(win, base) {
   for (const client of base) {
     const met = metrics(client, win.year, win.m0, win.m1);
     const flags = {
-      up: isUp(met), down: isDown(met), low: isLow(client, met), idle: client.idle, new: client.novo,
-      stuck: isStuck(client), replenish: isReplenish(client, met), met
+      up: isUp(met), down: isDown(met), low: isLow(client, met), idle: client.idle, new: client.novo, met
     };
-    if (state.listTab === "stock" || flags[state.listTab]) rows.push({ client, ...flags });
+    if (flags[state.listTab]) rows.push({ client, ...flags });
   }
   rows.sort((a, b) => {
     if (state.listTab === "up") return b.met.delta - a.met.delta;
-    if (state.listTab === "down" || state.listTab === "replenish") return a.met.delta - b.met.delta;
+    if (state.listTab === "down") return a.met.delta - b.met.delta;
     if (state.listTab === "low") return a.met.avg - b.met.avg;
     if (state.listTab === "new") return b.met.cur - a.met.cur || (a.client.first || 0) - (b.client.first || 0);
-    if (state.listTab === "stuck" || state.listTab === "stock") {
-      return b.client.saldo - a.client.saldo || a.client.nome.localeCompare(b.client.nome, "pt-BR");
-    }
-    return (b.client.saldo - a.client.saldo) || ((b.client.idleGap || 0) - (a.client.idleGap || 0));
+    return ((b.client.idleGap || 0) - (a.client.idleGap || 0)) || a.client.nome.localeCompare(b.client.nome, "pt-BR");
   });
   const shown = rows.slice(0, 80);
   $("alertList").innerHTML = shown.length ? shown.map((row, index) => {
@@ -1621,15 +1531,9 @@ function renderAlerts(win, base) {
     if (state.listTab === "up" || state.listTab === "down") pill = `<span class="pill ${state.listTab}">${formatPct(row.met.pct)}</span>`;
     else if (state.listTab === "low") pill = `<span class="pill low">${formatCompact(row.met.avg)}/mês</span>`;
     else if (state.listTab === "new") pill = `<span class="pill new">desde ${esc(row.client.firstLabel)}</span>`;
-    else if (state.listTab === "stuck" || state.listTab === "stock") pill = `<span class="pill stuck">${formatConsigned(client.saldo)}</span>`;
-    else if (state.listTab === "replenish") pill = `<span class="pill replenish">${client.saldo > 0.5 ? formatConsigned(client.saldo) : "sem livros consignados"}</span>`;
-    else if (client.saldo > 0.5) pill = `<span class="pill idle-alert" title="Sem faturar e ainda com livros consignados">${ALERT_ICON}${row.client.idleGap} meses · ${formatConsigned(client.saldo)}</span>`;
-    else pill = `<span class="pill idle">${row.client.idleGap} meses · ${formatConsigned(0)}</span>`;
-    const stockBit = state.listTab === "stuck" || state.listTab === "stock" || state.listTab === "replenish" || state.listTab === "idle"
-      ? ""
-      : (client.saldo > 0.5 ? ` · ${formatConsigned(client.saldo)}` : "");
+    else pill = `<span class="pill idle">${row.client.idleGap} meses</span>`;
     return `<button type="button" class="alert-row${state.clientId === client.id ? " is-focus" : ""}" data-id="${esc(client.id)}" style="animation-delay:${Math.min(index, 12) * 25}ms">
-      <span class="who"><strong>${esc(client.nome)}</strong><small>${esc(client.vendedor)} · ${esc(client.uf)} · ${esc(client.tipo)}${stockBit}</small></span>
+      <span class="who"><strong>${esc(client.nome)}</strong><small>${esc(client.vendedor)} · ${esc(client.uf)} · ${esc(client.tipo)}</small></span>
       ${pill}
     </button>`;
   }).join("") : `<p class="empty-row">Ninguém neste recorte.</p>`;
@@ -1640,10 +1544,8 @@ function renderAlerts(win, base) {
   const range = rangeLabel(win.m0, win.m1) + " de " + win.year;
   const how = {
     new: "Primeira venda nos últimos 12 meses da base (desde " + (state.meta.newSinceLabel || "—") + "), sem faturamento antes disso. Valores de " + range + ".",
-    low: "Com saldo consignado e média mensal de faturamento abaixo de R$ 1.500 em " + range + ".",
-    stuck: "Sem faturar há mais de 3 meses e com " + STOCK_STUCK.toLocaleString("pt-BR") + " livros ou mais consignados. " + idleAnchor + ".",
-    replenish: "Faturamento caiu em " + range + " e o saldo consignado está abaixo de " + STOCK_LOW.toLocaleString("pt-BR") + " livros. Pode ser falta de reposição.",
-    stock: "Clientes do recorte ordenados pelo saldo consignado, do maior para o menor."
+    low: "Média mensal de faturamento abaixo de R$ 1.500 em " + range + ".",
+    idle: "Sem faturar há mais de 3 meses. " + idleAnchor + "."
   };
   $("howRange").textContent = how[state.listTab] || ("Intervalo: " + range + " contra " + (win.year - 1) + ". " + idleAnchor + ".");
 }
@@ -1701,14 +1603,13 @@ function renderRanking(win) {
     const met = metrics(client, win.year, win.m0, win.m1);
     return { client, met, low: isLow(client, met) };
   });
-  const books = rows.reduce((sum, row) => sum + row.client.saldo, 0);
-  if (!state.searchPick && state.cohort !== "idle" && state.cohort !== "new" && state.cohort !== "stuck" && state.hideZeros) {
+  if (!state.searchPick && state.cohort !== "idle" && state.cohort !== "new" && state.hideZeros) {
     rows = rows.filter((row) => row.met.cur > 0.5 || row.met.prev > 0.5 || (state.cohort === "low" && row.low));
   }
+  if (state.rankSort.key === "saldo") state.rankSort = { key: "revenue", dir: "desc" };
   const dir = state.rankSort.dir === "asc" ? 1 : -1;
   rows.sort((a, b) => {
     if (state.rankSort.key === "name") return a.client.nome.localeCompare(b.client.nome, "pt-BR") * dir;
-    if (state.rankSort.key === "saldo") return (a.client.saldo - b.client.saldo) * dir;
     if (state.rankSort.key === "pct") {
       const av = a.met.pct == null ? 1e9 : a.met.pct;
       const bv = b.met.pct == null ? 1e9 : b.met.pct;
@@ -1717,15 +1618,14 @@ function renderRanking(win) {
     return (a.met.cur - b.met.cur) * dir;
   });
   const max = rows.reduce((m, row) => Math.max(m, row.met.cur), 0);
-  const focusName = state.clientId ? (state.clients.find((client) => client.id === state.clientId) || {}).nome : "";
   const vend = state.filters.vendedor;
   $("rankTitle").textContent = vend.size === 1 ? "Ranking · " + [...vend][0] : "Ranking de clientes";
-  $("rankCount").textContent = rows.length.toLocaleString("pt-BR") + " clientes · " + formatConsigned(books)
-    + " · " + rangeLabel(win.m0, win.m1) + "/" + win.year;
+  $("rankCount").textContent = rows.length.toLocaleString("pt-BR") + " clientes · "
+    + rangeLabel(win.m0, win.m1) + "/" + win.year;
   document.querySelectorAll("[data-sort]").forEach((button) => {
     const on = button.dataset.sort === state.rankSort.key;
     button.classList.toggle("is-sort", on);
-    const labels = { name: "Cliente", revenue: "Faturamento", pct: "Variação", saldo: "Saldo" };
+    const labels = { name: "Cliente", revenue: "Faturamento", pct: "Variação" };
     button.textContent = labels[button.dataset.sort] || button.dataset.sort;
     if (on) button.textContent += state.rankSort.dir === "asc" ? " ↑" : " ↓";
   });
@@ -1734,23 +1634,17 @@ function renderRanking(win) {
     const medal = index < 3 ? ` medal-${index + 1}` : "";
     const pctClass = row.met.pct == null ? "up" : row.met.pct > 0.05 ? "up" : row.met.pct < -0.05 ? "down" : "flat";
     const width = max > 0 ? Math.max(2, (row.met.cur / max) * 100) : 0;
-    const stuck = isStuck(client);
-    const replenish = isReplenish(client, row.met);
-    const saldoClass = stuck ? "is-stuck" : replenish ? "is-replenish" : client.saldo > 0.5 ? "" : "is-zero";
     const tags = (client.novo ? `<i class="tag tag-new" title="Primeira venda nos últimos 12 meses da base (desde ${esc(state.meta.newSinceLabel || "")}). Primeira venda: ${esc(client.firstLabel)}">novo</i>` : "")
-      + (stuck ? `<i class="tag tag-stuck" title="Sem faturar há ${client.idleGap} meses com ${formatBooks(client.saldo)} consignados">saldo consignado</i>` : "")
-      + (replenish ? `<i class="tag tag-replenish" title="Faturamento caiu e o saldo consignado está abaixo de ${STOCK_LOW} livros">sem saldo consignado</i>` : "")
       + (row.low ? `<i class="tag tag-low" title="Média mensal abaixo de R$ 1.500">≤1,5 mil</i>` : "")
-      + (client.idle && !stuck ? `<i class="tag tag-idle" title="Sem faturar há ${client.idleGap} meses">+3m</i>` : "");
+      + (client.idle ? `<i class="tag tag-idle" title="Sem faturar há ${client.idleGap} meses">+3m</i>` : "");
     return `<tr data-id="${esc(client.id)}" class="${state.clientId === client.id ? "is-focus" : ""}">
       <td class="col-pos${medal}">${index + 1}</td>
-      <td><div class="cname"><span>${esc(client.nome)}</span>${tags}</div><div class="cmeta">${esc(client.tipo)} · ${esc(client.uf)} · ${formatConsigned(client.saldo)}</div></td>
+      <td><div class="cname"><span>${esc(client.nome)}</span>${tags}</div><div class="cmeta">${esc(client.tipo)} · ${esc(client.uf)}</div></td>
       <td class="col-vend">${esc(client.vendedor)}</td>
       <td class="num"><div class="rev"><span style="width:${width}%"></span></div><b>${formatFull(row.met.cur)}</b></td>
       <td class="num"><span class="var ${pctClass}">${formatPct(row.met.pct)}</span></td>
-      <td class="num saldo ${saldoClass}" title="${formatBooks(client.saldo)} consignados">${Math.round(client.saldo).toLocaleString("pt-BR")}</td>
     </tr>`;
-  }).join("") : `<tr><td class="empty-row" colspan="6">Nenhum cliente neste recorte.</td></tr>`;
+  }).join("") : `<tr><td class="empty-row" colspan="5">Nenhum cliente neste recorte.</td></tr>`;
 }
 
 function renderDrawer(win) {
@@ -1776,30 +1670,11 @@ function renderDrawer(win) {
     return `<path d="${cmds}" stroke="${stroke}"/>`;
   };
   const badges = [];
-  const stuck = isStuck(client);
-  const replenish = isReplenish(client, met);
   if (client.novo) badges.push(`<span class="pill new">novo · desde ${esc(client.firstLabel)}</span>`);
   if (isUp(met)) badges.push(`<span class="pill up">cresceu</span>`);
   if (isDown(met)) badges.push(`<span class="pill down">caiu</span>`);
   if (isLow(client, met)) badges.push(`<span class="pill low">média ${formatCompact(met.avg)}/mês</span>`);
-  if (client.idle && client.saldo > 0.5) badges.push(`<span class="pill idle-alert">${ALERT_ICON}${client.idleGap} meses · ${formatConsigned(client.saldo)}</span>`);
-  else if (client.idle) badges.push(`<span class="pill idle">${client.idleGap} meses · ${formatConsigned(0)}</span>`);
-  if (stuck) badges.push(`<span class="pill stuck">saldo consignado</span>`);
-  if (replenish) badges.push(`<span class="pill replenish">sem saldo consignado</span>`);
-  let stockNote = "Saldo consignado atual, em livros.";
-  if (stuck) stockNote = "Sem faturar há " + client.idleGap + " meses com saldo alto. Esse estoque não deveria ficar parado.";
-  else if (replenish) stockNote = "O faturamento caiu e o saldo está baixo. Vale checar se deixou de repor o que vendeu.";
-  else if (client.saldo < 0.5) stockNote = "Sem saldo consignado neste momento.";
-  const valor = client.valor || 0;
-  const cover = met.avg > 0.5 && valor > 0.5 ? valor / met.avg : null;
-  const coverNote = !state.meta.hasValor
-    ? ""
-    : cover != null
-      ? " Equivale a " + formatCover(cover) + " da média de faturamento (" + formatFull(met.avg) + "/mês)."
-      : valor > 0.5 && met.cur <= 0.5
-        ? " Sem faturamento neste intervalo para comparar com a média."
-        : "";
-  const stockClass = stuck ? " is-stuck" : replenish ? " is-replenish" : "";
+  if (client.idle) badges.push(`<span class="pill idle">${client.idleGap} meses sem faturar</span>`);
   const revClass = met.pct == null || met.pct > 0.05 ? " is-up" : met.pct < -0.05 ? " is-down" : "";
   const rows = MONTHS_SHORT.map((label, index) => {
     const a = cur[index] || 0;
@@ -1825,11 +1700,6 @@ function renderDrawer(win) {
       <span>Faturamento · ${rangeLabel(win.m0, win.m1)}/${year}</span>
       <b>${formatFull(met.cur)}</b>
       <p>${prev}: ${formatFull(met.prev)} · ${formatPct(met.pct)}</p>
-    </div>
-    <div class="stock-callout stock-quiet${stockClass}">
-      <span>Valor líquido consignado</span>
-      <b class="stock-money">${state.meta.hasValor ? formatFull(valor) : "—"}</b>
-      <p>${formatConsigned(client.saldo)}. ${stockNote}${coverNote}</p>
     </div>
     <div class="badges">${badges.join("") || `<span class="pill">estável</span>`}</div>
     <svg class="spark" viewBox="0 0 360 72" aria-hidden="true">${points(old, "#7d92ab")}${points(cur, "#b5191a")}</svg>
@@ -1937,15 +1807,14 @@ function renderYears() {
 
 function renderAll() {
   if (!state.meta) return;
+  if (state.donutDim === "saldo") state.donutDim = "tipo";
+  if (!COHORTS[state.listTab]) state.listTab = "up";
+  if (state.cohort && !COHORTS[state.cohort]) state.cohort = null;
   pruneScopedFilters();
   const win = windowOf();
   const kpiList = population({ win, focus: true });
   const trendList = population({ win, focus: true });
-  const donutList = population({
-    win,
-    focus: false,
-    ignoreCliente: state.donutDim === "saldo"
-  });
+  const donutList = population({ win, focus: false });
   const base = renderInsights(win);
   renderKpis(win, kpiList);
   renderAlerts(win, base);
@@ -2578,10 +2447,7 @@ function bind() {
     donut.style.cursor = found && !found.outros ? "pointer" : "default";
     paintDonut(charts.p || 1);
     if (!found) { hideTip("chart"); return; }
-    const tipMeta = state.donutDim === "saldo" && found.saldo > 0.5
-      ? `<div>${formatBooks(found.saldo)}${found.meta ? ` · ${esc(found.meta)}` : ""}</div>`
-      : "";
-    showTip(event.clientX, event.clientY, `<b>${esc(found.label || found.key)}</b><div>${formatFull(found.value)}</div>${tipMeta}`, "chart");
+    showTip(event.clientX, event.clientY, `<b>${esc(found.label || found.key)}</b><div>${formatFull(found.value)}</div>`, "chart");
   });
   donut.addEventListener("pointerleave", () => {
     charts.hover = null;
