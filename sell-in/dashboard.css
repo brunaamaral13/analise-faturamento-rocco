@@ -455,6 +455,7 @@ body.is-drag .drop { border-color: var(--red); transform: translateY(-2px); }
 .legend button.is-off { opacity: .35; }
 
 .plot-wrap { position: relative; height: 460px; }
+.chart-card .plot-wrap { height: clamp(280px, calc(100vh - 250px), 340px); }
 .uf-layout { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); gap: 12px 24px; align-items: start; }
 .uf-bars { display: flex; flex-direction: column; min-width: 0; }
 .uf-layout .plot-wrap { height: 480px; }
@@ -779,7 +780,7 @@ body.is-drag .drop { border-color: var(--red); transform: translateY(-2px); }
   .top { flex-direction: column; align-items: stretch; }
   .top h1 { font-size: 28px; }
   .kpis, .insights, .grid-mid, .grid-bot { grid-template-columns: 1fr; }
-  .plot-wrap, .uf-layout .plot-wrap { height: 280px; min-height: 0; flex: none; }
+  .plot-wrap, .chart-card .plot-wrap, .uf-layout .plot-wrap { height: 280px; min-height: 0; flex: none; }
   .uf-layout { grid-template-columns: 1fr; }
   .brazil-wrap svg { max-height: 420px; }
   .uf-rank-grid { grid-template-columns: 1fr; }
