@@ -2333,8 +2333,37 @@ function clearFilters() {
   renderAll();
 }
 
+const SIDEBAR_COLLAPSED_KEY = "rocco-faturamento-sidebar-collapsed";
+
+function loadSidebarCollapsed() {
+  try {
+    return localStorage.getItem(SIDEBAR_COLLAPSED_KEY) === "1";
+  } catch (err) {
+    return false;
+  }
+}
+
+function setSidebarCollapsed(collapsed) {
+  document.body.classList.toggle("is-sidebar-collapsed", collapsed);
+  const show = $("btnShowSidebar");
+  const hide = $("btnHideSidebar");
+  const sidebar = $("sidebar");
+  if (show) show.hidden = !collapsed;
+  if (hide) hide.setAttribute("aria-expanded", collapsed ? "false" : "true");
+  if (sidebar) sidebar.setAttribute("aria-hidden", collapsed ? "true" : "false");
+  try {
+    localStorage.setItem(SIDEBAR_COLLAPSED_KEY, collapsed ? "1" : "0");
+  } catch (err) {
+    // ignore storage errors
+  }
+  window.dispatchEvent(new Event("resize"));
+}
+
 function wire() {
   initSellerGate();
+  setSidebarCollapsed(loadSidebarCollapsed());
+  $("btnHideSidebar").addEventListener("click", () => setSidebarCollapsed(true));
+  $("btnShowSidebar").addEventListener("click", () => setSidebarCollapsed(false));
   $("btnFile").addEventListener("click", () => {
     const input = document.body.dataset.view === "in" ? $("fileIn") : $("file");
     input?.click();

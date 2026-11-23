@@ -153,6 +153,56 @@ h1, h2, p { margin: 0; }
   overflow: hidden;
   animation: slide .55s cubic-bezier(.2,.7,.2,1) both;
 }
+.sidebar-top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+}
+.sidebar-top .brand {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding-right: 0;
+}
+.sidebar-hide-btn,
+.sidebar-show-btn {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.28);
+  background: rgba(255, 255, 255, 0.12);
+  color: #fff;
+  cursor: pointer;
+}
+.sidebar-hide-btn:hover,
+.sidebar-show-btn:hover { background: rgba(255, 255, 255, 0.22); }
+.sidebar-hide-btn svg,
+.sidebar-show-btn svg {
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2.2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.sidebar-show-btn {
+  position: fixed;
+  top: 18px;
+  left: 12px;
+  z-index: 40;
+  background: var(--red);
+  border-color: var(--red-deep);
+  box-shadow: var(--shadow);
+}
+body.is-sidebar-collapsed .app { grid-template-columns: 1fr; }
+body.is-sidebar-collapsed .sidebar { display: none; }
+body.is-sidebar-collapsed .main { padding-left: 56px; }
 .brand {
   display: flex;
   flex-direction: column;

@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,560;9..144,650&family=Outfit:wght@360;460;560;650&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css?v=20261123-views">
+  <link rel="stylesheet" href="styles.css?v=20261123-sidebar">
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%23b5191a'/%3E%3C/svg%3E">
 </head>
 <body>
@@ -22,10 +22,18 @@
   </div>
 
   <div class="app" id="appShell" hidden>
-    <aside class="sidebar">
-      <div class="brand">
-        <img src="logo-rocco.png" alt="Editora Rocco" width="184" height="50">
-        <small id="brandPanel">Sell-out</small>
+    <button type="button" class="sidebar-show-btn" id="btnShowSidebar" aria-label="Mostrar coluna lateral" title="Mostrar coluna lateral" hidden>
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 5l7 7-7 7"/></svg>
+    </button>
+    <aside class="sidebar" id="sidebar">
+      <div class="sidebar-top">
+        <div class="brand">
+          <img src="logo-rocco.png" alt="Editora Rocco" width="184" height="50">
+          <small id="brandPanel">Sell-out</small>
+        </div>
+        <button type="button" class="sidebar-hide-btn" id="btnHideSidebar" aria-label="Ocultar coluna lateral" title="Ocultar coluna lateral">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 5l-7 7 7 7"/></svg>
+        </button>
       </div>
       <div class="side-who">
         <span>Usando como</span>
@@ -430,7 +438,7 @@
   </div>
 
   <script src="brazil-map.js"></script>
-  <script src="app.js?v=20261123-views"></script>
+  <script src="app.js?v=20261123-sidebar"></script>
   <script src="sell-in/painel.js?v=20261107-drawer"></script>
 </body>
 </html>
